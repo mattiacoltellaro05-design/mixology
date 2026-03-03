@@ -102,6 +102,8 @@
     .switch input { opacity: 0; width: 0; }
     .slider { position: absolute; top: 2px; left: 2px; width: 24px; height: 24px; background: white; border-radius: 50%; transition: 0.3s; }
     input:checked + .switch .slider { transform: translateX(27px); background: var(--accent); }
+    .price-row { display: flex; gap: 10px; align-items: center; margin: 10px 0; }
+    .price-input { flex: 1; padding: 10px; border: 2px solid var(--mint-200); border-radius: 12px; font-size: 1rem; }
     
     @media (max-width: 600px) {
       .cocktails-grid, .orders-section { padding: 15px; }
@@ -141,6 +143,7 @@
   <div class="overlay" id="settingsOverlay">
     <div class="modal">
       <h3>⚙️ Impostazioni</h3>
+      
       <div class="toggle">
         <label>Modalità Scura</label>
         <label class="switch">
@@ -155,6 +158,13 @@
           <span class="slider"></span>
         </label>
       </div>
+      
+      <div style="margin: 25px 0; padding: 20px; background: var(--mint-100); border-radius: 16px;">
+        <h4>💰 Prezzi Cocktail (€)</h4>
+        <div id="priceEditor"></div>
+        <button class="btn btn-primary" style="width:100%; margin-top:15px;" onclick="savePrices()">💾 Salva Prezzi</button>
+      </div>
+      
       <button class="btn btn-primary" onclick="exportDay()">📤 Esporta JSON</button>
       <button class="btn btn-danger" onclick="resetAll()">🔄 Reset Tutto</button>
       <button class="btn" onclick="toggleSettings()">✕ Chiudi</button>
@@ -162,7 +172,7 @@
   </div>
 
   <script>
-    // Database Cocktail con ingredienti e costi
+    // Database Cocktail con ingredienti e costi base
     const cocktailsDB = {
       'Negroni': { ingredients: {Gin: 3, 'Campari': 3, 'Vermouth': 3}, cost: 1.80 },
       'Aperol Spritz': { ingredients: {'Aperol': 3, 'Prosecco': 6, 'Soda': 2}, cost: 1.50 },
@@ -175,6 +185,7 @@
     };
 
     let dailyOrders = JSON.parse(localStorage.getItem('barOrdersToday') || '{}');
+    let customPrices = JSON.parse(localStorage.getItem('barCustomPrices') || '{}');
     let isDarkMode = localStorage.getItem('barDark') === 'true';
     let isVibrationEnabled = localStorage.getItem('barVibration') !== 'false';
 
@@ -184,20 +195,24 @@
       document.getElementById('currentDate').textContent = new Date().toLocaleDateString('it-IT', {weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'});
       renderCocktails();
       renderOrders();
+      renderPriceEditor();
       vibrateIfEnabled(100);
     });
 
     function renderCocktails() {
       const grid = document.getElementById('cocktailsGrid');
-      grid.innerHTML = Object.keys(cocktailsDB).map(name => `
-        <div class="cocktail-card ${dailyOrders[name] ? 'selected' : ''}" onclick="addOrder('${name}')">
-          <div>
-            <div style="font-size: 1.3rem; font-weight: 600;">${name}</div>
-            <div style="font-size: 0.9rem; opacity: 0.8;">€${cocktailsDB[name].cost.toFixed(2)}</div>
+      grid.innerHTML = Object.keys(cocktailsDB).map(name => {
+        const price = customPrices[name] || cocktailsDB[name].cost;
+        return `
+          <div class="cocktail-card ${dailyOrders[name] ? 'selected' : ''}" onclick="addOrder('${name}')">
+            <div>
+              <div style="font-size: 1.3rem; font-weight: 600;">${name}</div>
+              <div style="font-size: 0.9rem; opacity: 0.8;">€${price.toFixed(2)}</div>
+            </div>
+            <div style="font-size: 1.5rem; min-width: 50px;">${dailyOrders[name] || 0}</div>
           </div>
-          <div style="font-size: 1.5rem; min-width: 50px;">${dailyOrders[name] || 0}</div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
     }
 
     function addOrder(cocktailName) {
@@ -232,8 +247,9 @@
         });
       });
 
+      // Incasso con prezzi custom
       const totalRevenue = Object.entries(dailyOrders).reduce((sum, [cocktail, count]) => 
-        sum + (cocktailsDB[cocktail].cost * count * 8), 0); // x8 margine
+        sum + ((customPrices[cocktail] || cocktailsDB[cocktail].cost) * count * 8), 0);
 
       summaryGrid.innerHTML = `
         <div class="summary-card">
@@ -251,6 +267,31 @@
       `;
     }
 
+    function renderPriceEditor() {
+      const editor = document.getElementById('priceEditor');
+      editor.innerHTML = Object.keys(cocktailsDB).map(name => `
+        <div class="price-row">
+          <span style="min-width:130px; font-weight:600;">${name}</span>
+          <input type="number" step="0.01" min="0" max="10" 
+                 value="${(customPrices[name] || cocktailsDB[name].cost).toFixed(2)}" 
+                 onchange="updateTempPrice('${name}', this.value)"
+                 class="price-input">
+          <span>€</span>
+        </div>
+      `).join('');
+    }
+
+    function updateTempPrice(name, value) {
+      customPrices[name] = parseFloat(value) || cocktailsDB[name].cost;
+    }
+
+    function savePrices() {
+      localStorage.setItem('barCustomPrices', JSON.stringify(customPrices));
+      alert('Prezzi salvati! ✅');
+      vibrateIfEnabled(100);
+      renderCocktails();
+    }
+
     function clearDay() {
       if (confirm('Finire giornata? Salva report!')) {
         localStorage.removeItem('barOrdersToday');
@@ -262,9 +303,11 @@
       }
     }
 
-    // Impostazioni
     function toggleSettings() {
       document.getElementById('settingsOverlay').classList.toggle('show');
+      if (document.getElementById('settingsOverlay').classList.contains('show')) {
+        renderPriceEditor();
+      }
     }
 
     function toggleDarkMode() {
@@ -295,6 +338,7 @@
       const data = {
         date: new Date().toISOString().split('T')[0],
         orders: dailyOrders,
+        prices: customPrices,
         timestamp: new Date().toISOString()
       };
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
