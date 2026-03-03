@@ -66,6 +66,12 @@
     .summary-card { background: var(--glass); border-radius: 20px; padding: 20px; text-align: center; }
     .summary-value { font-size: 2rem; font-weight: bold; color: var(--accent); }
     .chart-container { background: var(--glass); border-radius: 20px; padding: 20px; backdrop-filter: blur(10px); margin-top: 20px; }
+    .switch { position: relative; display: inline-block; width: 60px; height: 34px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; }
+    .slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+    input:checked + .slider { background-color: var(--accent); }
+    input:checked + .slider:before { transform: translateX(26px); }
   </style>
 </head>
 <body>
@@ -167,61 +173,459 @@
   </div>
 
   <script>
-    let cocktailsDB=JSON.parse(localStorage.getItem('barCustomCocktails')||'{"Negroni":{"ingredients":["Gin","Campari","Vermouth"],"defaultQty":3,"price":12},"Aperol Spritz":{"ingredients":["Aperol","Prosecco","Soda"],"defaultQty":4,"price":10},"Moscow Mule":{"ingredients":["Vodka","Zenzero","Lime"],"defaultQty":3,"price":11}}');
-    let inventory=JSON.parse(localStorage.getItem('barInventory')||'{}');
-    let dailyOrders=JSON.parse(localStorage.getItem('barOrdersToday')||'{}');
-    let isDarkMode=localStorage.getItem('barDark')==='true';
-    let currentOrderCocktail='';
-    let editingCocktail=editingIngredient=null;
+    let cocktailsDB = JSON.parse(localStorage.getItem('barCustomCocktails') || '{"Negroni":{"ingredients":["Gin","Campari","Vermouth"],"defaultQty":3,"price":12},"Aperol Spritz":{"ingredients":["Aperol","Prosecco","Soda"],"defaultQty":4,"price":10},"Moscow Mule":{"ingredients":["Vodka","Zenzero","Lime"],"defaultQty":3,"price":11}}');
+    let inventory = JSON.parse(localStorage.getItem('barInventory') || '{}');
+    let dailyOrders = JSON.parse(localStorage.getItem('barOrdersToday') || '{}');
+    let isDarkMode = localStorage.getItem('barDark') === 'true';
+    let currentOrderCocktail = '';
+    let editingCocktail = null;
+    let editingIngredient = null;
 
-    const defaultInventory={'Gin':{capacity:1000,current:800,pricePerLiter:25},'Campari':{capacity:1000,current:700,pricePerLiter:22},'Vermouth':{capacity:1000,current:650,pricePerLiter:18},'Aperol':{capacity:1000,current:850,pricePerLiter:20},'Prosecco':{capacity:2000,current:1800,pricePerLiter:15},'Soda':{capacity:2000,current:1900,pricePerLiter:2},'Vodka':{capacity:1000,current:900,pricePerLiter:22},'Zenzero':{capacity:500,current:300,pricePerLiter:12},'Lime':{capacity:200,current:120,pricePerLiter:35}};
+    const defaultInventory = {
+      'Gin': {capacity: 1000, current: 800, pricePerLiter: 25},
+      'Campari': {capacity: 1000, current: 700, pricePerLiter: 22},
+      'Vermouth': {capacity: 1000, current: 650, pricePerLiter: 18},
+      'Aperol': {capacity: 1000, current: 850, pricePerLiter: 20},
+      'Prosecco': {capacity: 2000, current: 1800, pricePerLiter: 15},
+      'Soda': {capacity: 2000, current: 1900, pricePerLiter: 2},
+      'Vodka': {capacity: 1000, current: 900, pricePerLiter: 22},
+      'Zenzero': {capacity: 500, current: 300, pricePerLiter: 12},
+      'Lime': {capacity: 200, current: 120, pricePerLiter: 35}
+    };
 
-    Object.keys(defaultInventory).forEach(k=>!inventory[k]&&(inventory[k]=defaultInventory[k]));
-    document.addEventListener('DOMContentLoaded',()=>{isDarkMode&&document.documentElement.setAttribute('data-theme','dark');document.getElementById('currentDate').textContent=new Date().toLocaleDateString('it-IT',{weekday:'long',year:'numeric',month:'long',day:'numeric'});initApp();document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',e=>e.target===o&&o.classList.remove('show')));});
+    // Inizializza inventario di default
+    Object.keys(defaultInventory).forEach(key => {
+      if (!inventory[key]) inventory[key] = defaultInventory[key];
+    });
 
-    function initApp(){renderReorderList();renderCocktails();renderOrders();renderInventory();renderAnalytics();}
+    document.addEventListener('DOMContentLoaded', () => {
+      if (isDarkMode) document.documentElement.setAttribute('data-theme', 'dark');
+      document.getElementById('currentDate').textContent = new Date().toLocaleDateString('it-IT', {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+      });
+      initApp();
+      document.querySelectorAll('.overlay').forEach(overlay => {
+        overlay.addEventListener('click', e => {
+          if (e.target === overlay) overlay.classList.remove('show');
+        });
+      });
+    });
 
-    function switchTab(t){document.querySelectorAll('.tab-btn, .tab-content').forEach((e,i)=>e.classList.toggle('active',i===+t[0]));t==='analytics'&&renderAnalytics();}
+    function initApp() {
+      renderReorderList();
+      renderCocktails();
+      renderOrders();
+      renderInventory();
+      renderAnalytics();
+    }
 
-    function renderReorderList(){const c=[],w=[];Object.entries(inventory).forEach(([n,d])=>{const p=(d.current/d.capacity)*100;p<20?c.push({n:n,d:d,p}):p<40&&w.push({n:n,d:d,p})});const s=document.getElementById('reorderSection'),h=c.length||w.length;if(!h)return s.style.display='none';s.style.display='block';s.innerHTML=`<div class="reorder-section"><h3>🔔 DA RIORDINARE</h3>${c.length?`<h4 style="color:var(--danger)">🔴 CRITICO (${c.length})</h4><div class="reorder-list">${c.map(({n,d,p})=>`<div class="reorder-item critical"><div><strong>${n}</strong><br><small>${Math.round(d.current)}/${d.capacity}cl (${p.toFixed(1)}%)</small></div><div><button class="reorder-btn btn-restock" onclick="quickRestock('${n.replace(/'/g,"\\'")}',0.9)">🔄 90%</button><button class="reorder-btn btn-edit" onclick="openIngredientEditor('${n.replace(/'/g,"\\'")}')">✏️</button></div></div>`).join('')}</div>`:''}${w.length?`<h4 style="color:var(--warning);">🟡 ATTENZIONE (${w.length})</h4><div class="reorder-list">${w.map(({n,d,p})=>`<div class="reorder-item"><div><strong>${n}</strong><br><small>${Math.round(d.current)}/${d.capacity}cl</small></div><button class="reorder-btn btn-restock" onclick="quickRestock('${n.replace(/'/g,"\\'")}',0.9)">🔄 90%</button></div>`).join('')}</div>`:''}</div>`;}
+    function switchTab(tabName) {
+      // Rimuovi active da tutti i tab buttons
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      // Rimuovi active da tutti i tab contents
+      document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+      
+      // Aggiungi active al button cliccato
+      event.target.classList.add('active');
+      
+      // Aggiungi active al tab content corrispondente
+      document.getElementById(tabName + 'Tab').classList.add('active');
+      
+      // Refresh specifico per analytics
+      if (tabName === 'analytics') renderAnalytics();
+    }
 
-    function quickRestock(n,p){confirm(`🔄 Riordinare ${n} al ${Math.round(p*100)}%?`)&&(inventory[n].current=Math.round(inventory[n].capacity*p),localStorage.setItem('barInventory',JSON.stringify(inventory)),renderReorderList(),renderInventory(),alert(`✅ ${n}: ${inventory[n].current}cl`));}
+    function renderReorderList() {
+      const critical = [], warning = [];
+      Object.entries(inventory).forEach(([name, data]) => {
+        const percentage = (data.current / data.capacity) * 100;
+        if (percentage < 20) critical.push({name, data, percentage});
+        else if (percentage < 40) warning.push({name, data, percentage});
+      });
+      
+      const section = document.getElementById('reorderSection');
+      const hasItems = critical.length || warning.length;
+      if (!hasItems) return section.style.display = 'none';
+      
+      section.style.display = 'block';
+      section.innerHTML = `
+        <div class="reorder-section">
+          <h3>🔔 DA RIORDINARE</h3>
+          ${critical.length ? `
+            <h4 style="color:var(--danger)">🔴 CRITICO (${critical.length})</h4>
+            <div class="reorder-list">
+              ${critical.map(({name, data, percentage}) => `
+                <div class="reorder-item critical">
+                  <div>
+                    <strong>${name}</strong>
+                    <br><small>${Math.round(data.current)}/${data.capacity}cl (${percentage.toFixed(1)}%)</small>
+                  </div>
+                  <div>
+                    <button class="reorder-btn btn-restock" onclick="quickRestock('${name.replace(/'/g, "\\'")}', 0.9)">🔄 90%</button>
+                    <button class="reorder-btn btn-edit" onclick="openIngredientEditor('${name.replace(/'/g, "\\'')}')">✏️</button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+          ${warning.length ? `
+            <h4 style="color:#f4a261;">🟡 ATTENZIONE (${warning.length})</h4>
+            <div class="reorder-list">
+              ${warning.map(({name, data}) => `
+                <div class="reorder-item">
+                  <div>
+                    <strong>${name}</strong>
+                    <br><small>${Math.round(data.current)}/${data.capacity}cl</small>
+                  </div>
+                  <button class="reorder-btn btn-restock" onclick="quickRestock('${name.replace(/'/g, "\\'")}', 0.9)">🔄 90%</button>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
 
-    function calculateCocktailCost(n){const d=cocktailsDB[n];if(!d)return 0;let t=0;return d.ingredients.forEach(i=>{const v=inventory[i];v&&(t+=(d.defaultQty*v.pricePerLiter)/100)}),t}
+    function quickRestock(name, percentage) {
+      if (confirm(`🔄 Riordinare ${name} al ${Math.round(percentage * 100)}%?`)) {
+        inventory[name].current = Math.round(inventory[name].capacity * percentage);
+        localStorage.setItem('barInventory', JSON.stringify(inventory));
+        renderReorderList();
+        renderInventory();
+        alert(`✅ ${name}: ${inventory[name].current}cl`);
+      }
+    }
 
-    function renderCocktails(){document.getElementById('cocktailsGrid').innerHTML=Object.keys(cocktailsDB).sort().map(n=>{const d=cocktailsDB[n],c=dailyOrders[n]||0,o=calculateCocktailCost(n),p=d.price-o;return`<div class="cocktail-btn ${c>0?'selected':''}" onclick="openIngredientModal('${n.replace(/'/g,'\\\\\'')}')"><div style="font-size:0.9rem;line-height:1.1;">${n}</div><div class="cocktail-count">${c}</div><div class="cocktail-price">€${d.price}</div><div class="cocktail-profit">+€${p.toFixed(2)}</div></div>`}).join('');}
+    function calculateCocktailCost(name) {
+      const data = cocktailsDB[name];
+      if (!data) return 0;
+      let total = 0;
+      data.ingredients.forEach(ingredient => {
+        const value = inventory[ingredient];
+        if (value) total += (data.defaultQty * value.pricePerLiter) / 100;
+      });
+      return total;
+    }
 
-    function renderOrders(){const t=Object.values(dailyOrders).reduce((a,b)=>a+b,0);document.getElementById('totalOrders').textContent=t;document.getElementById('ordersList').innerHTML=Object.entries(dailyOrders).filter(([_,c])=>c>0).sort(([_,a],[__,b])=>b-a).map(([n,c])=>{const p=cocktailsDB[n]?.price||12,o=calculateCocktailCost(n)*c,f=(p*c)-o;return`<div class="order-item"><span>${n}</span><span style="font-weight:bold;font-size:1.2rem;color:var(--accent)">×${c}</span><div style="font-size:0.9rem">€${(p*c).toFixed(1)} <span style="color:var(--profit);">+€${f.toFixed(1)}</span></div></div>`}).join('')||'<div style="opacity:0.5;text-align:center;padding:20px">Nessun ordine</div>';const g=document.getElementById('summaryGrid'),v=Object.entries(dailyOrders).reduce((s,[n,c])=>s+(cocktailsDB[n]?.price||12)*c,0),C=Object.entries(dailyOrders).reduce((s,[n,c])=>s+calculateCocktailCost(n)*c,0),P=v-C;g.innerHTML=`<div class="summary-card"><div style="font-size:1.1rem;opacity:0.8;">Cocktail</div><div class="summary-value">${t}</div></div><div class="summary-card"><div style="font-size:1.1rem;opacity:0.8;">Fatturato</div><div class="summary-value">€${v.toFixed(1)}</div></div><div class="summary-card"><div style="font-size:1.1rem;opacity:0.8;">Costo Ing.</div><div class="summary-value" style="color:var(--warning);">€${C.toFixed(1)}</div></div><div class="summary-card"><div style="font-size:1.1rem;opacity:0.8;">✅ PROFITTO</div><div class="summary-value" style="color:var(--profit);">€${P.toFixed(1)}</div></div>`;}
+    function renderCocktails() {
+      document.getElementById('cocktailsGrid').innerHTML = Object.keys(cocktailsDB)
+        .sort()
+        .map(name => {
+          const data = cocktailsDB[name];
+          const count = dailyOrders[name] || 0;
+          const cost = calculateCocktailCost(name);
+          const profit = data.price - cost;
+          return `
+            <div class="cocktail-btn ${count > 0 ? 'selected' : ''}" onclick="openIngredientModal('${name.replace(/'/g, "\\'")}')">
+              <div style="font-size:0.9rem;line-height:1.1;">${name}</div>
+              <div class="cocktail-count">${count}</div>
+              <div class="cocktail-price">€${data.price}</div>
+              <div class="cocktail-profit">+€${profit.toFixed(2)}</div>
+            </div>
+          `;
+        }).join('');
+    }
 
-    function renderAnalytics(){document.getElementById('topCocktails').innerHTML=Object.entries(dailyOrders).sort(([_,a],[__,b])=>b-a).slice(0,5).map(([n,c],i)=>{const t=Object.values(dailyOrders).reduce((a,b)=>a+b,0),p=t?((c/t)*100).toFixed(1):0;return`<div style="display:flex;justify-content:space-between;padding:10px;border-bottom:1px solid rgba(255,255,255,0.1);"><span>${['🥇','🥈','🥉','④','⑤'][i]} ${n}</span><span>${c} (${p}%)</span></div>`}).join('')||'<div style="text-align:center;opacity:0.5;">Nessun dato</div>';document.getElementById('forecastList').innerHTML=Object.entries(inventory).filter(([_,d])=>(d.current/d.capacity)<0.5).sort(([_,a],[__,b])=>(a.current/(a.capacity*0.05))-(b.current/(b.capacity*0.05))).slice(0,8).map(([n,d])=>{const g=Math.round((d.current/(d.capacity*0.05))/2),s=g<=2?'🔴 URGENTE':g<=7?'🟡 PRESTO':'🟢 OK';return`<div style="padding:12px;border-radius:12px;background:${g<=2?'#ff6b7a':g<=7?'#f4a261':'#2a9d8f'};color:white;margin-bottom:8px;">${n}: ${Math.round(d.current)}cl → ${s} (${g}gg)</div>`}).join('')||'<div style="text-align:center;opacity:0.5;">Tutti OK!</div>';}
+    function renderOrders() {
+      const total = Object.values(dailyOrders).reduce((a, b) => a + b, 0);
+      document.getElementById('totalOrders').textContent = total;
+      
+      document.getElementById('ordersList').innerHTML = Object.entries(dailyOrders)
+        .filter(([_, count]) => count > 0)
+        .sort(([_, a], [__, b]) => b - a)
+        .map(([name, count]) => {
+          const price = cocktailsDB[name]?.price || 12;
+          const cost = calculateCocktailCost(name) * count;
+          const profit = (price * count) - cost;
+          return `
+            <div class="order-item">
+              <span>${name}</span>
+              <span style="font-weight:bold;font-size:1.2rem;color:var(--accent)">×${count}</span>
+              <div style="font-size:0.9rem">
+                €${(price * count).toFixed(1)} 
+                <span style="color:var(--profit);">+€${profit.toFixed(1)}</span>
+              </div>
+            </div>
+          `;
+        }).join('') || '<div style="opacity:0.5;text-align:center;padding:20px">Nessun ordine</div>';
 
-    function renderInventory(){document.getElementById('inventoryGrid').innerHTML=Object.entries(inventory).sort(([a],[b])=>a.localeCompare(b)).map(([n,d])=>{const p=Math.min(100,(d.current/d.capacity)*100),l=p<20,o=(d.pricePerLiter/100).toFixed(2);return`<div class="bottle-card ${l?'bottle-low':''}" onclick="openIngredientEditor('${n.replace(/'/g,'\\\\\'')}')"><div class="bottle-name">${n}</div><div class="bottle-qty">${Math.round(d.current)}cl</div><div style="font-size:0.8rem;opacity:0.7;">${d.capacity}cl</div><div class="bottle-cost">€${o}/cl</div><div style="height:6px;background:var(--mint-200);border-radius:3px;margin-top:8px;overflow:hidden"><div style="height:100%;width:${p}%;background:var(--accent);transition:width 0.3s"></div></div></div>`}).join('')||'<div style="grid-column:1/-1;text-align:center;opacity:0.5;padding:40px;">Aggiungi un ingrediente!</div>';}
+      const grid = document.getElementById('summaryGrid');
+      const revenue = Object.entries(dailyOrders).reduce((sum, [name, count]) => 
+        sum + (cocktailsDB[name]?.price || 12) * count, 0);
+      const costs = Object.entries(dailyOrders).reduce((sum, [name, count]) => 
+        sum + calculateCocktailCost(name) * count, 0);
+      const profit = revenue - costs;
+      
+      grid.innerHTML = `
+        <div class="summary-card">
+          <div style="font-size:1.1rem;opacity:0.8;">Cocktail</div>
+          <div class="summary-value">${total}</div>
+        </div>
+        <div class="summary-card">
+          <div style="font-size:1.1rem;opacity:0.8;">Fatturato</div>
+          <div class="summary-value">€${revenue.toFixed(1)}</div>
+        </div>
+        <div class="summary-card">
+          <div style="font-size:1.1rem;opacity:0.8;">Costo Ing.</div>
+          <div class="summary-value" style="color:#f4a261;">€${costs.toFixed(1)}</div>
+        </div>
+        <div class="summary-card">
+          <div style="font-size:1.1rem;opacity:0.8;">✅ PROFITTO</div>
+          <div class="summary-value" style="color:var(--profit);">€${profit.toFixed(1)}</div>
+        </div>
+      `;
+    }
 
-    function openIngredientModal(n){currentOrderCocktail=n;document.getElementById('currentCocktail').textContent=n;const d=cocktailsDB[n],c=d.ingredients,q=d.defaultQty,e=document.getElementById('ingredientInputs');e.innerHTML=c.map(i=>{const v=inventory[i]||{current:0};return`<div class="input-group"><label>${i}</label><input type="number" class="ingredient-qty" data-ingredient="${i}" value="${q}" min="0" step="0.5" style="font-weight:bold;"><small>${v.current.toFixed(1)}cl disponibili</small></div>`}).join('');document.getElementById('ingredientModal').classList.add('show');}
+    function renderAnalytics() {
+      document.getElementById('topCocktails').innerHTML = Object.entries(dailyOrders)
+        .sort(([_, a], [__, b]) => b - a)
+        .slice(0, 5)
+        .map(([name, count], i) => {
+          const total = Object.values(dailyOrders).reduce((a, b) => a + b, 0);
+          const percentage = total ? ((count / total) * 100).toFixed(1) : 0;
+          return `
+            <div style="display:flex;justify-content:space-between;padding:10px;border-bottom:1px solid rgba(255,255,255,0.1);">
+              <span>${['🥇','🥈','🥉','④','⑤'][i]} ${name}</span>
+              <span>${count} (${percentage}%)</span>
+            </div>
+          `;
+        }).join('') || '<div style="text-align:center;opacity:0.5;">Nessun dato</div>';
 
-    function confirmOrder(){const i=document.querySelectorAll('.ingredient-qty'),v=true;i.forEach(t=>{const q=parseFloat(t.value)||0,n=t.dataset.ingredient,r=inventory[n];q>0&&(!r||r.current<q)&&(alert(`❌ ${n} insufficiente! (${r?.current?.toFixed(1)||0}cl)`),v=false)});if(!v)return;i.forEach(t=>{const q=parseFloat(t.value)||0,n=t.dataset.ingredient;q>0&&inventory[n]&&(inventory[n].current=Math.max(0,inventory[n].current-q))});dailyOrders[currentOrderCocktail]=(dailyOrders[currentOrderCocktail]||0)+1;localStorage.setItem('barInventory',JSON.stringify(inventory));localStorage.setItem('barOrdersToday',JSON.stringify(dailyOrders));initApp();document.getElementById('ingredientModal').classList.remove('show');}
+      document.getElementById('forecastList').innerHTML = Object.entries(inventory)
+        .filter(([_, data]) => (data.current / data.capacity) < 0.5)
+        .sort(([_, a], [__, b]) => (a.current / (a.capacity * 0.05)) - (b.current / (b.capacity * 0.05)))
+        .slice(0, 8)
+        .map(([name, data]) => {
+          const days = Math.round((data.current / (data.capacity * 0.05)) / 2);
+          const status = days <= 2 ? '🔴 URGENTE' : days <= 7 ? '🟡 PRESTO' : '🟢 OK';
+          return `
+            <div style="padding:12px;border-radius:12px;background:${
+              days <= 2 ? '#ff6b7a' : days <= 7 ? '#f4a261' : '#2a9d8f'
+            };color:white;margin-bottom:8px;">
+              ${name}: ${Math.round(data.current)}cl → ${status} (${days}gg)
+            </div>
+          `;
+        }).join('') || '<div style="text-align:center;opacity:0.5;">Tutti OK!</div>';
+    }
 
-    function openIngredientEditor(n=null){editingIngredient=n;document.getElementById('ingredientEditorModal').classList.add('show');if(n){const d=inventory[n];document.getElementById('ingredientEditorTitle').textContent=`✏️ Modifica ${n}`;document.getElementById('ingredientName').value=n;document.getElementById('ingredientCapacity').value=d.capacity;document.getElementById('ingredientCurrent').value=d.current;document.getElementById('ingredientPrice').value=d.pricePerLiter;document.getElementById('deleteIngredientBtn').style.display='inline-flex'}else document.getElementById('ingredientEditorTitle').textContent='➕ Nuovo Ingrediente',[document.getElementById('ingredientName'),document.getElementById('ingredientCapacity'),document.getElementById('ingredientCurrent'),document.getElementById('ingredientPrice')].forEach(e=>e.value=''),document.getElementById('deleteIngredientBtn').style.display='none';}
+    function renderInventory() {
+      document.getElementById('inventoryGrid').innerHTML = Object.entries(inventory)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([name, data]) => {
+          const percentage = Math.min(100, (data.current / data.capacity) * 100);
+          const low = percentage < 20;
+          const costPerCl = (data.pricePerLiter / 100).toFixed(2);
+          return `
+            <div class="bottle-card ${low ? 'bottle-low' : ''}" onclick="openIngredientEditor('${name.replace(/'/g, "\\'")}')">
+              <div style="font-weight:600;font-size:1.1rem;">${name}</div>
+              <div style="font-size:1.3rem;font-weight:bold;">${Math.round(data.current)}cl</div>
+              <div style="font-size:0.8rem;opacity:0.7;">${data.capacity}cl</div>
+              <div style="font-size:0.85rem;">€${costPerCl}/cl</div>
+              <div style="height:6px;background:var(--mint-200);border-radius:3px;margin-top:8px;overflow:hidden">
+                <div style="height:100%;width:${percentage}%;background:var(--accent);transition:width 0.3s"></div>
+              </div>
+            </div>
+          `;
+        }).join('') || '<div style="grid-column:1/-1;text-align:center;opacity:0.5;padding:40px;">Aggiungi un ingrediente!</div>';
+    }
 
-    function saveIngredient(){const n=document.getElementById('ingredientName').value.trim(),c=parseFloat(document.getElementById('ingredientCapacity').value)||1000,r=parseFloat(document.getElementById('ingredientCurrent').value)||0,p=parseFloat(document.getElementById('ingredientPrice').value)||0;!n?alert('❌ Nome richiesto!'):inventory[n]&&editingIngredient!==n&&!confirm('Sovrascrivere?')||(inventory[n]={capacity:c,current:r,pricePerLiter:p},localStorage.setItem('barInventory',JSON.stringify(inventory)),initApp(),document.getElementById('ingredientEditorModal').classList.remove('show'));}
+    function openIngredientModal(name) {
+      currentOrderCocktail = name;
+      document.getElementById('currentCocktail').textContent = name;
+      const data = cocktailsDB[name];
+      const ingredients = data.ingredients;
+      const qty = data.defaultQty;
+      const element = document.getElementById('ingredientInputs');
+      element.innerHTML = ingredients.map(ingredient => {
+        const value = inventory[ingredient] || {current: 0};
+        return `
+          <div class="input-group">
+            <label>${ingredient}</label>
+            <input type="number" class="ingredient-qty" data-ingredient="${ingredient}" value="${qty}" min="0" step="0.5" style="font-weight:bold;">
+            <small>${value.current.toFixed(1)}cl disponibili</small>
+          </div>
+        `;
+      }).join('');
+      document.getElementById('ingredientModal').classList.add('show');
+    }
 
-    function deleteIngredient(){editingIngredient&&confirm(`🗑️ Elimina "${editingIngredient}"?`)&&(delete inventory[editingIngredient],localStorage.setItem('barInventory',JSON.stringify(inventory)),initApp(),document.getElementById('ingredientEditorModal').classList.remove('show'));}
+    function confirmOrder() {
+      const inputs = document.querySelectorAll('.ingredient-qty');
+      let valid = true;
+      inputs.forEach(input => {
+        const qty = parseFloat(input.value) || 0;
+        const name = input.dataset.ingredient;
+        const remaining = inventory[name];
+        if (qty > 0 && (!remaining || remaining.current < qty)) {
+          alert(`❌ ${name} insufficiente! (${remaining?.current?.toFixed(1) || 0}cl)`);
+          valid = false;
+        }
+      });
+      if (!valid) return;
 
-    function openCocktailEditor(n=null){editingCocktail=n;document.getElementById('cocktailEditorModal').classList.add('show');if(n){const d=cocktailsDB[n];document.getElementById('cocktailEditorTitle').textContent=`✏️ Modifica ${n}`;document.getElementById('cocktailName').value=n;document.getElementById('cocktailPrice').value=d.price;document.getElementById('cocktailDefaultQty').value=d.defaultQty;document.getElementById('cocktailIngredients').value=d.ingredients.join(', ');document.getElementById('deleteCocktailBtn').style.display='inline-flex'}else document.getElementById('cocktailEditorTitle').textContent='➕ Nuovo Cocktail',document.getElementById('cocktailName').value=document.getElementById('cocktailPrice').value='',document.getElementById('cocktailDefaultQty').value=3,document.getElementById('cocktailIngredients').value='',document.getElementById('deleteCocktailBtn').style.display='none';}
+      inputs.forEach(input => {
+        const qty = parseFloat(input.value) || 0;
+        const name = input.dataset.ingredient;
+        if (qty > 0 && inventory[name]) {
+          inventory[name].current = Math.max(0, inventory[name].current - qty);
+        }
+      });
 
-    function addCocktail(){const n=document.getElementById('cocktailName').value.trim(),p=parseFloat(document.getElementById('cocktailPrice').value)||10,q=parseFloat(document.getElementById('cocktailDefaultQty').value)||3,i=document.getElementById('cocktailIngredients').value.split(',').map(e=>e.trim()).filter(e=>e);!n||!i.length?alert('❌ Nome e ingredienti richiesti!'):cocktailsDB[n]={ingredients:i,defaultQty:q,price:p},localStorage.setItem('barCustomCocktails',JSON.stringify(cocktailsDB)),initApp(),document.getElementById('cocktailEditorModal').classList.remove('show');}
+      dailyOrders[currentOrderCocktail] = (dailyOrders[currentOrderCocktail] || 0) + 1;
+      localStorage.setItem('barInventory', JSON.stringify(inventory));
+      localStorage.setItem('barOrdersToday', JSON.stringify(dailyOrders));
+      initApp();
+      document.getElementById('ingredientModal').classList.remove('show');
+    }
 
-    function deleteCocktail(){editingCocktail&&confirm(`🗑️ Elimina "${editingCocktail}"?`)&&(delete cocktailsDB[editingCocktail],localStorage.setItem('barCustomCocktails',JSON.stringify(cocktailsDB)),initApp(),document.getElementById('cocktailEditorModal').classList.remove('show'));}
+    function openIngredientEditor(name = null) {
+      editingIngredient = name;
+      document.getElementById('ingredientEditorModal').classList.add('show');
+      if (name) {
+        const data = inventory[name];
+        document.getElementById('ingredientEditorTitle').textContent = `✏️ Modifica ${name}`;
+        document.getElementById('ingredientName').value = name;
+        document.getElementById('ingredientCapacity').value = data.capacity;
+        document.getElementById('ingredientCurrent').value = data.current;
+        document.getElementById('ingredientPrice').value = data.pricePerLiter;
+        document.getElementById('deleteIngredientBtn').style.display = 'inline-flex';
+      } else {
+        document.getElementById('ingredientEditorTitle').textContent = '➕ Nuovo Ingrediente';
+        document.getElementById('ingredientName').value = '';
+        document.getElementById('ingredientCapacity').value = '';
+        document.getElementById('ingredientCurrent').value = '';
+        document.getElementById('ingredientPrice').value = '';
+        document.getElementById('deleteIngredientBtn').style.display = 'none';
+      }
+    }
 
-    function clearDay(){confirm('Azzerare ordini oggi?')&&(dailyOrders={},localStorage.setItem('barOrdersToday',JSON.stringify(dailyOrders)),initApp());}
+    function saveIngredient() {
+      const name = document.getElementById('ingredientName').value.trim();
+      const capacity = parseFloat(document.getElementById('ingredientCapacity').value) || 1000;
+      const current = parseFloat(document.getElementById('ingredientCurrent').value) || 0;
+      const price = parseFloat(document.getElementById('ingredientPrice').value) || 0;
+      
+      if (!name) {
+        alert('❌ Nome richiesto!');
+        return;
+      }
+      
+      if (inventory[name] && editingIngredient !== name && !confirm('Sovrascrivere?')) {
+        return;
+      }
+      
+      inventory[name] = {capacity, current, pricePerLiter: price};
+      localStorage.setItem('barInventory', JSON.stringify(inventory));
+      initApp();
+      document.getElementById('ingredientEditorModal').classList.remove('show');
+    }
 
-    function toggleSettings(){document.getElementById('settingsOverlay').classList.toggle('show');}
+    function deleteIngredient() {
+      if (editingIngredient && confirm(`🗑️ Elimina "${editingIngredient}"?`)) {
+        delete inventory[editingIngredient];
+        localStorage.setItem('barInventory', JSON.stringify(inventory));
+        initApp();
+        document.getElementById('ingredientEditorModal').classList.remove('show');
+      }
+    }
 
-    function toggleDarkMode(){isDarkMode=!isDarkMode;localStorage.setItem('barDark',isDarkMode);document.documentElement.setAttribute('data-theme',isDarkMode?'dark':'');}
+    function closeIngredientEditor() {
+      document.getElementById('ingredientEditorModal').classList.remove('show');
+    }
 
-    function exportAll(){const d={inventory,cocktailsDB};const b=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=`bar-backup-${new Date().toISOString().split('T')[0]}.json`;a.click();URL.revokeObjectURL(u);}
+    function openCocktailEditor(name = null) {
+      editingCocktail = name;
+      document.getElementById('cocktailEditorModal').classList.add('show');
+      if (name) {
+        const data = cocktailsDB[name];
+        document.getElementById('cocktailEditorTitle').textContent = `✏️ Modifica ${name}`;
+        document.getElementById('cocktailName').value = name;
+        document.getElementById('cocktailPrice').value = data.price;
+        document.getElementById('cocktailDefaultQty').value = data.defaultQty;
+        document.getElementById('cocktailIngredients').value = data.ingredients.join(', ');
+        document.getElementById('deleteCocktailBtn').style.display = 'inline-flex';
+      } else {
+        document.getElementById('cocktailEditorTitle').textContent = '➕ Nuovo Cocktail';
+        document.getElementById('cocktailName').value = '';
+        document.getElementById('cocktailPrice').value = '';
+        document.getElementById('cocktailDefaultQty').value = 3;
+        document.getElementById('cocktailIngredients').value = '';
+        document.getElementById('deleteCocktailBtn').style.display = 'none';
+      }
+    }
 
-    function resetAll(){confirm('❌ RESET TOTALE?')&&localStorage.clear()&&location.reload();}
+    function addCocktail() {
+      const name = document.getElementById('cocktailName').value.trim();
+      const price = parseFloat(document.getElementById('cocktailPrice').value) || 10;
+      const qty = parseFloat(document.getElementById('cocktailDefaultQty').value) || 3;
+      const ingredients = document.getElementById('cocktailIngredients').value
+        .split(',')
+        .map(e => e.trim())
+        .filter(e => e);
+      
+      if (!name || !ingredients.length) {
+        alert('❌ Nome e ingredienti richiesti!');
+        return;
+      }
+      
+      cocktailsDB[name] = {ingredients, defaultQty: qty, price};
+      localStorage.setItem('barCustomCocktails', JSON.stringify(cocktailsDB));
+      initApp();
+      document.getElementById('cocktailEditorModal').classList.remove('show');
+    }
+
+    function deleteCocktail() {
+      if (editingCocktail && confirm(`🗑️ Elimina "${editingCocktail}"?`)) {
+        delete cocktailsDB[editingCocktail];
+        localStorage.setItem('barCustomCocktails', JSON.stringify(cocktailsDB));
+        initApp();
+        document.getElementById('cocktailEditorModal').classList.remove('show');
+      }
+    }
+
+    function closeCocktailEditor() {
+      document.getElementById('cocktailEditorModal').classList.remove('show');
+    }
+
+    function clearDay() {
+      if (confirm('Azzerare ordini oggi?')) {
+        dailyOrders = {};
+        localStorage.setItem('barOrdersToday', JSON.stringify(dailyOrders));
+        initApp();
+      }
+    }
+
+    function closeIngredientModal() {
+      document.getElementById('ingredientModal').classList.remove('show');
+    }
+
+    function toggleSettings() {
+      document.getElementById('settingsOverlay').classList.toggle('show');
+    }
+
+    function toggleDarkMode() {
+      isDarkMode = !isDarkMode;
+      localStorage.setItem('barDark', isDarkMode);
+      document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : '');
+    }
+
+    function exportAll() {
+      const data = { inventory, cocktailsDB };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `bar-backup-${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function resetAll() {
+      if (confirm('❌ RESET TOTALE?')) {
+        localStorage.clear();
+        location.reload();
+      }
+    }
   </script>
 </body>
 </html>
