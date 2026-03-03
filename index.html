@@ -43,16 +43,42 @@
     
     .cocktails-grid {
       background: var(--glass); backdrop-filter: blur(15px); border-radius: 24px;
-      padding: 25px; box-shadow: var(--shadow);
+      padding: 20px; box-shadow: var(--shadow);
     }
-    .cocktails-title { font-size: 1.5rem; margin-bottom: 20px; text-align: center; }
-    .cocktail-card {
-      background: var(--mint-50); border-radius: 20px; padding: 20px; margin-bottom: 15px;
-      cursor: pointer; transition: all 0.3s; border: 2px solid transparent;
-      display: flex; justify-content: space-between; align-items: center;
+    .cocktails-title { font-size: 1.3rem; margin-bottom: 15px; text-align: center; }
+    
+    /* TASTI PICCOLI MINT-STYLE 3x3 GRID */
+    .cocktails-buttons {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+      max-height: 500px; overflow-y: auto;
     }
-    .cocktail-card:hover { transform: translateY(-3px); box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
-    .cocktail-card.selected { border-color: var(--accent); background: var(--accent); color: white; }
+    .cocktail-btn {
+      background: var(--mint-50); 
+      border: 2px solid transparent; 
+      border-radius: 16px; 
+      padding: 12px 8px; 
+      text-align: center; 
+      cursor: pointer; 
+      transition: all 0.3s ease;
+      min-height: 70px; 
+      display: flex; 
+      flex-direction: column; 
+      align-items: center; 
+      justify-content: center;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .cocktail-btn:hover { 
+      transform: translateY(-2px); 
+      box-shadow: 0 8px 25px rgba(0,0,0,0.2); 
+    }
+    .cocktail-btn.selected { 
+      border-color: var(--accent); 
+      background: linear-gradient(45deg, var(--accent), #e76f51); 
+      color: white; 
+    }
+    .cocktail-price { font-size: 0.7rem; opacity: 0.8; margin-top: 2px; }
+    .cocktail-count { font-size: 1.1rem; font-weight: bold; margin-top: 2px; }
     
     .orders-section {
       background: var(--glass); backdrop-filter: blur(15px); border-radius: 24px;
@@ -79,7 +105,6 @@
       font-weight: 600; transition: all 0.3s; box-shadow: 0 4px 15px rgba(0,0,0,0.2);
     }
     .btn-primary { background: linear-gradient(45deg, var(--mint-500), var(--mint-600)); color: white; }
-    .btn-success { background: linear-gradient(45deg, #2a9d8f, #48cae4); color: white; }
     .btn-danger { background: linear-gradient(45deg, #ef476f, #ff6b7a); color: white; }
     .btn:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.3); }
     
@@ -106,7 +131,9 @@
     .price-input { flex: 1; padding: 10px; border: 2px solid var(--mint-200); border-radius: 12px; font-size: 1rem; }
     
     @media (max-width: 600px) {
-      .cocktails-grid, .orders-section { padding: 15px; }
+      .cocktails-grid { padding: 15px; }
+      .cocktails-buttons { grid-template-columns: repeat(3, 1fr); gap: 10px; }
+      .cocktail-btn { padding: 10px 6px; font-size: 0.8rem; min-height: 60px; }
       .main-grid { gap: 20px; }
     }
   </style>
@@ -125,7 +152,7 @@
     <div class="main-grid">
       <div class="cocktails-grid">
         <h2 class="cocktails-title">Seleziona Cocktail</h2>
-        <div id="cocktailsGrid"></div>
+        <div class="cocktails-buttons" id="cocktailsGrid"></div>
       </div>
 
       <div class="orders-section">
@@ -195,7 +222,6 @@
       document.getElementById('currentDate').textContent = new Date().toLocaleDateString('it-IT', {weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'});
       renderCocktails();
       renderOrders();
-      renderPriceEditor();
       vibrateIfEnabled(100);
     });
 
@@ -203,13 +229,12 @@
       const grid = document.getElementById('cocktailsGrid');
       grid.innerHTML = Object.keys(cocktailsDB).map(name => {
         const price = customPrices[name] || cocktailsDB[name].cost;
+        const count = dailyOrders[name] || 0;
         return `
-          <div class="cocktail-card ${dailyOrders[name] ? 'selected' : ''}" onclick="addOrder('${name}')">
-            <div>
-              <div style="font-size: 1.3rem; font-weight: 600;">${name}</div>
-              <div style="font-size: 0.9rem; opacity: 0.8;">€${price.toFixed(2)}</div>
-            </div>
-            <div style="font-size: 1.5rem; min-width: 50px;">${dailyOrders[name] || 0}</div>
+          <div class="cocktail-btn ${count > 0 ? 'selected' : ''}" onclick="addOrder('${name}')">
+            <div style="font-size: 0.9rem; line-height: 1.1;">${name}</div>
+            <div class="cocktail-price">€${price.toFixed(2)}</div>
+            <div class="cocktail-count">${count}</div>
           </div>
         `;
       }).join('');
