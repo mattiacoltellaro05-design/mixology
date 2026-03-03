@@ -387,7 +387,7 @@
     let cocktailsDB = JSON.parse(localStorage.getItem('barCustomCocktails') || `{
       "Negroni":{"ingredients":["Gin","Campari","Vermouth"],"quantities":{"Gin":3,"Campari":3,"Vermouth":3},"price":7},
       "Aperol Spritz":{"ingredients":["Aperol","Prosecco","Soda"],"quantities":{"Aperol":6,"Prosecco":12,"Soda":6},"price":6.5},
-      "Moscow Mule":{"ingredients":["Vodka","Ginger Beer","Lime"],"quantities":{"Vodka":5,"Zenzero":30,"Lime":1.5},"price":8}
+      "Moscow Mule":{"ingredients":["Vodka","Ginger Beer","Lime"],"quantities":{"Vodka":5,"Ginger Beer":30,"Lime":1.5},"price":8}
     }`);
     
     let inventory = JSON.parse(localStorage.getItem('barInventory') || '{}');
