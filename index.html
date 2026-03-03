@@ -133,9 +133,13 @@
       background: linear-gradient(45deg,var(--danger),#ff6b7b); color: white; 
     }
     
+    /* GRID 3 COLONNE PER INGREDIENTI */
     .inventory-grid { 
-      display: grid; grid-template-columns: repeat(auto-fill,minmax(200px,1fr)); 
+      display: grid; grid-template-columns: repeat(auto-fill,minmax(320px,1fr)); 
       gap: 15px; max-height: 500px; overflow-y: auto; padding: 10px; 
+    }
+    @media (max-width: 768px) {
+      .inventory-grid { grid-template-columns: repeat(auto-fill,minmax(280px,1fr)); }
     }
     .bottle-card { 
       background: var(--glass); backdrop-filter: blur(15px); border-radius: 16px; 
@@ -191,6 +195,22 @@
     .input-field:focus {
       outline: none; border-color: var(--accent); 
       box-shadow: 0 0 0 3px rgba(244, 162, 97, 0.1);
+    }
+    .ingredients-selector {
+      max-height: 200px; overflow-y: auto; border: 2px solid var(--mint-200); 
+      border-radius: 12px; background: white; padding: 10px;
+    }
+    .ingredient-checkbox {
+      display: flex; align-items: center; gap: 8px; padding: 6px; 
+      cursor: pointer; border-radius: 8px; transition: background 0.2s;
+    }
+    .ingredient-checkbox:hover { background: var(--mint-100); }
+    .ingredient-checkbox input:checked + label { 
+      font-weight: bold; color: var(--accent); 
+    }
+    .ingredient-qty { 
+      margin-left: auto; padding: 4px 8px; border: 1px solid var(--mint-300); 
+      border-radius: 6px; width: 60px; text-align: center; font-size: 0.9rem;
     }
     .order-item { 
       background: var(--mint-50); border-radius: 16px; padding: 15px; 
@@ -286,7 +306,7 @@
     </div>
   </div>
 
-  <!-- SOLO MODAL EDITOR COCKTAIL E INGREDIENTI -->
+  <!-- MODAL INGREDIENTI -->
   <div class="overlay" id="ingredientEditorModal">
     <div class="modal">
       <h3 id="ingredientEditorTitle">➕ Nuovo Ingrediente</h3>
@@ -316,32 +336,33 @@
     </div>
   </div>
 
+  <!-- MODAL COCKTAIL CON SELETTORE INGREDIENTI -->
   <div class="overlay" id="cocktailEditorModal">
     <div class="modal">
       <h3 id="cocktailEditorTitle">➕ Nuovo Cocktail</h3>
       <div class="editor-grid">
         <div class="input-group">
-          <label>Nome</label>
+          <label>Nome Cocktail</label>
           <input type="text" id="cocktailName" class="input-field">
         </div>
         <div class="input-group">
-          <label>Prezzo (€)</label>
+          <label>Prezzo Vendita (€)</label>
           <input type="number" id="cocktailPrice" class="input-field" step="0.5">
         </div>
         <div class="input-group">
-          <label>Ingredienti</label>
-          <input type="text" id="cocktailIngredients" class="input-field" placeholder="Gin, Campari, Vermouth">
+          <label>Seleziona Ingredienti</label>
+          <div class="ingredients-selector" id="ingredientsSelector"></div>
         </div>
       </div>
-      <div id="quantitiesSection" style="margin-top:20px;"></div>
       <div style="text-align:center;margin-top:25px;gap:10px;display:flex;justify-content:center;flex-wrap:wrap;">
-        <button class="btn" onclick="addCocktail()">✅ Salva</button>
-        <button class="mint-btn btn-danger" onclick="deleteCocktail()" id="deleteCocktailBtn" style="display:none;">🗑️</button>
-        <button class="mint-btn" onclick="closeCocktailEditor()">❌</button>
+        <button class="btn" onclick="saveCocktail()">✅ Salva Cocktail</button>
+        <button class="mint-btn btn-danger" onclick="deleteCocktail()" id="deleteCocktailBtn" style="display:none;">🗑️ Elimina</button>
+        <button class="mint-btn" onclick="closeCocktailEditor()">❌ Annulla</button>
       </div>
     </div>
   </div>
 
+  <!-- SETTINGS MODAL -->
   <div class="overlay" id="settingsOverlay">
     <div class="modal">
       <h3>⚙️ Impostazioni</h3>
@@ -363,7 +384,6 @@
   </div>
 
   <script>
-    // DATI CON QUANTITÀ PREDEFINITE
     let cocktailsDB = JSON.parse(localStorage.getItem('barCustomCocktails') || `{
       "Negroni":{"ingredients":["Gin","Campari","Vermouth"],"quantities":{"Gin":3,"Campari":3,"Vermouth":3},"price":12},
       "Aperol Spritz":{"ingredients":["Aperol","Prosecco","Soda"],"quantities":{"Aperol":4,"Prosecco":6,"Soda":5},"price":10},
@@ -373,6 +393,8 @@
     let inventory = JSON.parse(localStorage.getItem('barInventory') || '{}');
     let dailyOrders = JSON.parse(localStorage.getItem('barOrdersToday') || '{}');
     let isDarkMode = localStorage.getItem('barDark') === 'true';
+    let editingIngredient = null;
+    let editingCocktail = null;
 
     const defaultInventory = {
       'Gin': {capacity: 1000, current: 800, pricePerLiter: 25},
@@ -411,7 +433,6 @@
       });
     });
 
-    // **ORDINE ISTANTANEO - SEMPLIFICATO**
     function quickOrder(cocktailName) {
       const data = cocktailsDB[cocktailName];
       if (!data || !data.quantities) {
@@ -419,7 +440,6 @@
         return;
       }
 
-      // Controlla scorte
       let valid = true;
       Object.entries(data.quantities).forEach(([ingredient, qty]) => {
         const stock = inventory[ingredient];
@@ -431,21 +451,18 @@
 
       if (!valid) return;
 
-      // Scala inventario
       Object.entries(data.quantities).forEach(([ingredient, qty]) => {
         if (qty > 0 && inventory[ingredient]) {
           inventory[ingredient].current = Math.max(0, inventory[ingredient].current - qty);
         }
       });
 
-      // Aggiungi ordine
       dailyOrders[cocktailName] = (dailyOrders[cocktailName] || 0) + 1;
       
       localStorage.setItem('barInventory', JSON.stringify(inventory));
       localStorage.setItem('barOrdersToday', JSON.stringify(dailyOrders));
       
       initApp();
-      // Feedback visivo
       event.target.closest('.cocktail-btn').style.transform = 'scale(0.95)';
       setTimeout(() => {
         event.target.closest('.cocktail-btn').style.transform = '';
@@ -643,9 +660,7 @@
         }).join('') || '<div style="grid-column:1/-1;text-align:center;opacity:0.5;padding:40px;">Aggiungi un ingrediente!</div>';
     }
 
-    // EDITOR FUNZIONI (invariate ma con pulsanti mint)
     function renderAnalytics() {
-      // ... analytics code remains the same
       document.getElementById('topCocktails').innerHTML = Object.entries(dailyOrders)
         .sort(([_, a], [__, b]) => b - a)
         .slice(0, 5)
@@ -677,11 +692,11 @@
         }).join('') || '<div style="text-align:center;opacity:0.5;">Tutti OK!</div>';
     }
 
-    // Resto delle funzioni editor (breviate per spazio - identiche alla versione precedente)
+    // INGREDIENTI EDITOR
     function openIngredientEditor(name = null) {
       editingIngredient = name;
       document.getElementById('ingredientEditorModal').classList.add('show');
-      // ... resto codice editor
+      
       if (name) {
         const data = inventory[name];
         document.getElementById('ingredientEditorTitle').textContent = `✏️ Modifica ${name}`;
@@ -727,11 +742,106 @@
       document.getElementById('ingredientEditorModal').classList.remove('show');
     }
 
-    let editingCocktail = null;
+    // COCKTAIL EDITOR CON SELETTORE
     function openCocktailEditor(name = null) {
       editingCocktail = name;
       document.getElementById('cocktailEditorModal').classList.add('show');
-      // ... resto codice cocktail editor
+      
+      if (name && cocktailsDB[name]) {
+        const data = cocktailsDB[name];
+        document.getElementById('cocktailEditorTitle').textContent = `✏️ Modifica ${name}`;
+        document.getElementById('cocktailName').value = name;
+        document.getElementById('cocktailPrice').value = data.price;
+        document.getElementById('deleteCocktailBtn').style.display = 'inline-flex';
+      } else {
+        document.getElementById('cocktailEditorTitle').textContent = '➕ Nuovo Cocktail';
+        document.getElementById('cocktailName').value = '';
+        document.getElementById('cocktailPrice').value = '';
+        document.getElementById('deleteCocktailBtn').style.display = 'none';
+      }
+      
+      renderIngredientsSelector();
+    }
+
+    function renderIngredientsSelector() {
+      const selector = document.getElementById('ingredientsSelector');
+      const cocktailName = document.getElementById('cocktailName').value;
+      const cocktailData = cocktailName && cocktailsDB[cocktailName];
+      
+      selector.innerHTML = Object.keys(inventory).sort().map(ingredient => {
+        const isSelected = cocktailData && cocktailData.ingredients.includes(ingredient);
+        const qty = cocktailData?.quantities?.[ingredient] || '';
+        return `
+          <div class="ingredient-checkbox">
+            <input type="checkbox" id="ing_${ingredient}" ${isSelected ? 'checked' : ''}>
+            <label for="ing_${ingredient}">${ingredient}</label>
+            <input type="number" class="ingredient-qty" value="${qty}" min="0" step="0.5" placeholder="cl">
+          </div>
+        `;
+      }).join('');
+      
+      // Event listeners per i checkbox
+      setTimeout(() => {
+        Object.keys(inventory).forEach(ingredient => {
+          const checkbox = document.getElementById(`ing_${ingredient}`);
+          if (checkbox) {
+            checkbox.addEventListener('change', updateCocktailPreview);
+            const qtyInput = checkbox.parentNode.querySelector('.ingredient-qty');
+            if (qtyInput) qtyInput.addEventListener('input', updateCocktailPreview);
+          }
+        });
+      }, 100);
+    }
+
+    function updateCocktailPreview() {
+      // Preview costo in tempo reale (opzionale)
+    }
+
+    function saveCocktail() {
+      const name = document.getElementById('cocktailName').value.trim();
+      const price = parseFloat(document.getElementById('cocktailPrice').value) || 0;
+      
+      if (!name) { alert('❌ Nome cocktail richiesto!'); return; }
+      if (price <= 0) { alert('❌ Prezzo richiesto!'); return; }
+      
+      const ingredients = [];
+      const quantities = {};
+      
+      Object.keys(inventory).forEach(ingredient => {
+        const checkbox = document.getElementById(`ing_${ingredient}`);
+        const qtyInput = document.querySelector(`#ing_${ingredient}`)?.parentNode?.querySelector('.ingredient-qty');
+        if (checkbox?.checked) {
+          const qty = parseFloat(qtyInput?.value) || 0;
+          if (qty > 0) {
+            ingredients.push(ingredient);
+            quantities[ingredient] = qty;
+          }
+        }
+      });
+      
+      if (ingredients.length === 0) {
+        alert('❌ Seleziona almeno un ingrediente con quantità!');
+        return;
+      }
+      
+      cocktailsDB[name] = { ingredients, quantities, price };
+      localStorage.setItem('barCustomCocktails', JSON.stringify(cocktailsDB));
+      initApp();
+      document.getElementById('cocktailEditorModal').classList.remove('show');
+      alert(`✅ Cocktail "${name}" salvato!`);
+    }
+
+    function deleteCocktail() {
+      if (editingCocktail && confirm(`🗑️ Elimina "${editingCocktail}"?`)) {
+        delete cocktailsDB[editingCocktail];
+        localStorage.setItem('barCustomCocktails', JSON.stringify(cocktailsDB));
+        initApp();
+        document.getElementById('cocktailEditorModal').classList.remove('show');
+      }
+    }
+
+    function closeCocktailEditor() {
+      document.getElementById('cocktailEditorModal').classList.remove('show');
     }
 
     function clearDay() {
