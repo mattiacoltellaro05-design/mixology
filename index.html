@@ -43,7 +43,7 @@
       background-clip: text;
     }
     
-    /* TABS SYSTEM - COMPLETAMENTE RIFATTO */
+    /* TABS SYSTEM */
     .tabs-container {
       margin-bottom: 30px;
     }
@@ -161,13 +161,19 @@
       background: linear-gradient(45deg,var(--danger),#ff6b7b); 
       color: white; 
     }
-    .reorder-btn { 
-      padding: 8px 16px; 
-      border: none; 
-      border-radius: 12px; 
-      cursor: pointer; 
-      font-weight: 600; 
-      margin: 0 2px; 
+    
+    /* PULSANTI MINT PICCOLI */
+    .mint-btn {
+      padding: 6px 12px !important;
+      font-size: 0.8rem !important;
+      border-radius: 12px !important;
+      margin: 2px !important;
+      min-width: 70px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
+    }
+    .mint-btn:hover {
+      transform: translateY(-1px) !important;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.25) !important;
     }
     .btn-restock { background: var(--success); color: white; }
     .btn-edit { background: var(--mint-500); color: white; }
@@ -219,7 +225,6 @@
     }
     .btn-success { background: linear-gradient(45deg,var(--success),#48cae4); }
     .btn-danger { background: linear-gradient(45deg,var(--danger),#ff6b7a); }
-    .btn-small { padding: 6px 12px; font-size: 0.8rem; }
     
     .settings { 
       position: fixed; 
@@ -296,6 +301,9 @@
       display: flex; 
       justify-content: space-between; 
       align-items: center; 
+    }
+    .order-item button.mint-btn {
+      margin-left: 8px;
     }
     .summary-grid { 
       display: grid; 
@@ -374,7 +382,6 @@
       <div id="currentDate"></div>
     </div>
 
-    <!-- TABS SYSTEM - RISTRUTTURATO -->
     <div class="tabs-container">
       <div class="tab-buttons">
         <button class="tab-btn active" data-tab="cocktails">🍹 Ordini</button>
@@ -458,7 +465,7 @@
       </div>
       <div style="text-align:center;margin-top:25px;gap:10px;display:flex;justify-content:center;flex-wrap:wrap;">
         <button class="btn" onclick="saveIngredient()">✅ Salva</button>
-        <button class="btn btn-danger" onclick="deleteIngredient()" id="deleteIngredientBtn" style="display:none;">🗑️ Elimina</button>
+        <button class="btn btn-danger mint-btn" onclick="deleteIngredient()" id="deleteIngredientBtn" style="display:none;">🗑️ Elimina</button>
         <button class="btn btn-small" onclick="closeIngredientEditor()">❌ Annulla</button>
       </div>
     </div>
@@ -477,17 +484,14 @@
           <input type="number" id="cocktailPrice" class="input-field" step="0.5">
         </div>
         <div class="input-group">
-          <label>Qty/Ingrediente (cl)</label>
-          <input type="number" id="cocktailDefaultQty" class="input-field" step="0.5" value="3">
-        </div>
-        <div class="input-group">
           <label>Ingredienti</label>
           <input type="text" id="cocktailIngredients" class="input-field" placeholder="Gin, Campari, Vermouth">
         </div>
       </div>
+      <div id="quantitiesSection" style="margin-top:20px;"></div>
       <div style="text-align:center;margin-top:25px;gap:10px;display:flex;justify-content:center;flex-wrap:wrap;">
         <button class="btn" onclick="addCocktail()">✅ Salva</button>
-        <button class="btn btn-danger" onclick="deleteCocktail()" id="deleteCocktailBtn" style="display:none;">🗑️ Elimina</button>
+        <button class="btn btn-danger mint-btn" onclick="deleteCocktail()" id="deleteCocktailBtn" style="display:none;">🗑️ Elimina</button>
         <button class="btn btn-small" onclick="closeCocktailEditor()">❌ Annulla</button>
       </div>
     </div>
@@ -514,11 +518,11 @@
   </div>
 
   <script>
-    // DATI APPLICAZIONE
+    // DATI APPLICAZIONE - AGGIUNTA QUANTITÀ PERSONALIZZATE
     let cocktailsDB = JSON.parse(localStorage.getItem('barCustomCocktails') || `{
-      "Negroni":{"ingredients":["Gin","Campari","Vermouth"],"defaultQty":3,"price":12},
-      "Aperol Spritz":{"ingredients":["Aperol","Prosecco","Soda"],"defaultQty":4,"price":10},
-      "Moscow Mule":{"ingredients":["Vodka","Zenzero","Lime"],"defaultQty":3,"price":11}
+      "Negroni":{"ingredients":["Gin","Campari","Vermouth"],"quantities":{"Gin":3,"Campari":3,"Vermouth":3},"price":12},
+      "Aperol Spritz":{"ingredients":["Aperol","Prosecco","Soda"],"quantities":{"Aperol":4,"Prosecco":6,"Soda":5},"price":10},
+      "Moscow Mule":{"ingredients":["Vodka","Zenzero","Lime"],"quantities":{"Vodka":4,"Zenzero":12,"Lime":2},"price":11}
     }`);
     
     let inventory = JSON.parse(localStorage.getItem('barInventory') || '{}');
@@ -543,28 +547,23 @@
 
     // INIZIALIZZAZIONE
     document.addEventListener('DOMContentLoaded', function() {
-      // Dark mode
       if (isDarkMode) {
         document.documentElement.setAttribute('data-theme', 'dark');
         document.getElementById('darkModeToggle').checked = true;
       }
       
-      // Data corrente
       document.getElementById('currentDate').textContent = new Date().toLocaleDateString('it-IT', {
         weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
       });
       
-      // Inizializza inventario
       Object.keys(defaultInventory).forEach(key => {
         if (!inventory[key]) inventory[key] = defaultInventory[key];
       });
       localStorage.setItem('barInventory', JSON.stringify(inventory));
       
-      // Inizializza app
       initTabs();
       initApp();
       
-      // Overlay click fuori per chiudere
       document.querySelectorAll('.overlay').forEach(overlay => {
         overlay.addEventListener('click', function(e) {
           if (e.target === overlay) overlay.classList.remove('show');
@@ -572,21 +571,14 @@
       });
     });
 
-    // SISTEMA TABS - COMPLTAMENTE RINNOVATO
     function initTabs() {
       document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', function() {
           const tabName = this.dataset.tab;
-          
-          // Rimuovi active da tutti
           document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
           document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-          
-          // Attiva corrente
           this.classList.add('active');
           document.getElementById(tabName + 'Tab').classList.add('active');
-          
-          // Refresh specifico
           if (tabName === 'analytics') renderAnalytics();
         });
       });
@@ -600,7 +592,6 @@
       renderAnalytics();
     }
 
-    // RENDER FUNZIONI
     function renderReorderList() {
       const critical = [], warning = [];
       Object.entries(inventory).forEach(([name, data]) => {
@@ -627,8 +618,8 @@
                     <br><small>${Math.round(data.current)}/${data.capacity}cl (${percentage.toFixed(1)}%)</small>
                   </div>
                   <div>
-                    <button class="reorder-btn btn-restock" onclick="quickRestock('${name.replace(/'/g, "\\'")}', 0.9)">🔄 90%</button>
-                    <button class="reorder-btn btn-edit" onclick="openIngredientEditor('${name.replace(/'/g, "\\'")}')">✏️</button>
+                    <button class="reorder-btn mint-btn btn-restock" onclick="quickRestock('${name.replace(/'/g, "\\\\'")}', 0.9)">🔄 90%</button>
+                    <button class="reorder-btn mint-btn btn-edit" onclick="openIngredientEditor('${name.replace(/'/g, "\\\\'")}')">✏️</button>
                   </div>
                 </div>
               `).join('')}
@@ -643,7 +634,7 @@
                     <strong>${name}</strong>
                     <br><small>${Math.round(data.current)}/${data.capacity}cl</small>
                   </div>
-                  <button class="reorder-btn btn-restock" onclick="quickRestock('${name.replace(/'/g, "\\'")}', 0.9)">🔄 90%</button>
+                  <button class="reorder-btn mint-btn btn-restock" onclick="quickRestock('${name.replace(/'/g, "\\\\'")}', 0.9)">🔄 90%</button>
                 </div>
               `).join('')}
             </div>
@@ -664,11 +655,11 @@
 
     function calculateCocktailCost(name) {
       const data = cocktailsDB[name];
-      if (!data) return 0;
+      if (!data || !data.quantities) return 0;
       let total = 0;
-      data.ingredients.forEach(ingredient => {
+      Object.entries(data.quantities).forEach(([ingredient, qty]) => {
         const value = inventory[ingredient];
-        if (value) total += (data.defaultQty * value.pricePerLiter) / 100;
+        if (value) total += (qty * value.pricePerLiter) / 100;
       });
       return total;
     }
@@ -682,7 +673,7 @@
           const cost = calculateCocktailCost(name);
           const profit = data.price - cost;
           return `
-            <div class="cocktail-btn ${count > 0 ? 'selected' : ''}" onclick="openIngredientModal('${name.replace(/'/g, "\\'")}')">
+            <div class="cocktail-btn ${count > 0 ? 'selected' : ''}" onclick="openIngredientModal('${name.replace(/'/g, "\\\\'")}')">
               <div style="font-size:0.9rem;line-height:1.1;">${name}</div>
               <div class="cocktail-count">${count}</div>
               <div class="cocktail-price">€${data.price}</div>
@@ -711,6 +702,7 @@
                 €${(price * count).toFixed(1)} 
                 <span style="color:var(--profit);">+€${profit.toFixed(1)}</span>
               </div>
+              <button class="mint-btn btn-danger" onclick="removeOrder('${name.replace(/'/g, "\\\\'")}')">➖</button>
             </div>
           `;
         }).join('') || '<div style="opacity:0.5;text-align:center;padding:20px">Nessun ordine</div>';
@@ -740,6 +732,16 @@
           <div class="summary-value" style="color:var(--profit);">€${profit.toFixed(1)}</div>
         </div>
       `;
+    }
+
+    function removeOrder(name) {
+      if (dailyOrders[name] > 1) {
+        dailyOrders[name]--;
+      } else {
+        delete dailyOrders[name];
+      }
+      localStorage.setItem('barOrdersToday', JSON.stringify(dailyOrders));
+      initApp();
     }
 
     function renderAnalytics() {
@@ -782,7 +784,7 @@
           const low = percentage < 20;
           const costPerCl = (data.pricePerLiter / 100).toFixed(2);
           return `
-            <div class="bottle-card ${low ? 'bottle-low' : ''}" onclick="openIngredientEditor('${name.replace(/'/g, "\\'")}')">
+            <div class="bottle-card ${low ? 'bottle-low' : ''}" onclick="openIngredientEditor('${name.replace(/'/g, "\\\\'")}')">
               <div style="font-weight:600;font-size:1.1rem;">${name}</div>
               <div style="font-size:1.3rem;font-weight:bold;">${Math.round(data.current)}cl</div>
               <div style="font-size:0.8rem;opacity:0.7;">${data.capacity}cl</div>
@@ -790,26 +792,29 @@
               <div style="height:6px;background:var(--mint-200);border-radius:3px;margin-top:8px;overflow:hidden">
                 <div style="height:100%;width:${percentage}%;background:var(--accent);transition:width 0.3s"></div>
               </div>
+              <div style="margin-top:8px;">
+                <button class="mint-btn btn-restock" onclick="event.stopPropagation();quickRestock('${name.replace(/'/g, "\\\\'")}', 1)">🔄 Full</button>
+              </div>
             </div>
           `;
         }).join('') || '<div style="grid-column:1/-1;text-align:center;opacity:0.5;padding:40px;">Aggiungi un ingrediente!</div>';
     }
 
-    // ORDINI
+    // ORDINI CON QUANTITÀ PREDEFINITE
     function openIngredientModal(name) {
       currentOrderCocktail = name;
       document.getElementById('currentCocktail').textContent = name;
       const data = cocktailsDB[name];
       const ingredients = data.ingredients;
-      const qty = data.defaultQty;
       
       const element = document.getElementById('ingredientInputs');
       element.innerHTML = ingredients.map(ingredient => {
+        const savedQty = data.quantities?.[ingredient] || 3;
         const value = inventory[ingredient] || {current: 0};
         return `
           <div class="input-group">
             <label>${ingredient}</label>
-            <input type="number" class="ingredient-qty input-field" data-ingredient="${ingredient}" value="${qty}" min="0" step="0.5">
+            <input type="number" class="ingredient-qty input-field" data-ingredient="${ingredient}" value="${savedQty}" min="0" step="0.5">
             <small>${value.current.toFixed(1)}cl disponibili</small>
           </div>
         `;
@@ -910,7 +915,7 @@
       document.getElementById('ingredientEditorModal').classList.remove('show');
     }
 
-    // GESTIONE COCKTAIL
+    // GESTIONE COCKTAIL CON QUANTITÀ PERSONALIZZABILI
     function openCocktailEditor(name = null) {
       editingCocktail = name;
       document.getElementById('cocktailEditorModal').classList.add('show');
@@ -920,34 +925,80 @@
         document.getElementById('cocktailEditorTitle').textContent = `✏️ Modifica ${name}`;
         document.getElementById('cocktailName').value = name;
         document.getElementById('cocktailPrice').value = data.price;
-        document.getElementById('cocktailDefaultQty').value = data.defaultQty;
         document.getElementById('cocktailIngredients').value = data.ingredients.join(', ');
         document.getElementById('deleteCocktailBtn').style.display = 'inline-flex';
       } else {
         document.getElementById('cocktailEditorTitle').textContent = '➕ Nuovo Cocktail';
         document.getElementById('cocktailName').value = '';
         document.getElementById('cocktailPrice').value = '';
-        document.getElementById('cocktailDefaultQty').value = 3;
         document.getElementById('cocktailIngredients').value = '';
         document.getElementById('deleteCocktailBtn').style.display = 'none';
       }
+      
+      renderQuantitiesSection();
+    }
+
+    function renderQuantitiesSection() {
+      const ingredients = document.getElementById('cocktailIngredients').value
+        .split(',')
+        .map(i => i.trim())
+        .filter(i => i);
+      
+      const name = editingCocktail || document.getElementById('cocktailName').value.trim();
+      const data = name ? cocktailsDB[name] : null;
+      
+      document.getElementById('quantitiesSection').innerHTML = `
+        <h4 style="margin-bottom:15px;">Quantità per ingrediente (cl)</h4>
+        <div style="display:grid;gap:10px;">
+          ${ingredients.map(ingredient => {
+            const savedQty = data?.quantities?.[ingredient] || 3;
+            return `
+              <div style="display:flex;gap:10px;align-items:center;">
+                <span style="min-width:100px;font-weight:500;">${ingredient}</span>
+                <input type="number" class="input-field" data-ingredient="${ingredient}" value="${savedQty}" 
+                       style="width:80px;" min="0" step="0.5" onchange="updateQuantity('${ingredient}', this.value)">
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    }
+
+    function updateQuantity(ingredient, value) {
+      const name = editingCocktail || document.getElementById('cocktailName').value.trim();
+      if (!name) return;
+      
+      if (!cocktailsDB[name].quantities) {
+        cocktailsDB[name].quantities = {};
+      }
+      cocktailsDB[name].quantities[ingredient] = parseFloat(value) || 3;
     }
 
     function addCocktail() {
       const name = document.getElementById('cocktailName').value.trim();
       const price = parseFloat(document.getElementById('cocktailPrice').value) || 10;
-      const qty = parseFloat(document.getElementById('cocktailDefaultQty').value) || 3;
-      const ingredients = document.getElementById('cocktailIngredients').value
+      const ingredientsInput = document.getElementById('cocktailIngredients').value
         .split(',')
         .map(e => e.trim())
         .filter(e => e);
       
-      if (!name || !ingredients.length) {
+      if (!name || !ingredientsInput.length) {
         alert('❌ Nome e ingredienti richiesti!');
         return;
       }
       
-      cocktailsDB[name] = {ingredients, defaultQty: qty, price};
+      // Crea quantità predefinite se non esistono
+      const quantities = {};
+      ingredientsInput.forEach(ingredient => {
+        quantities[ingredient] = 3; // Default 3cl
+      });
+      
+      cocktailsDB[name] = {
+        ingredients: ingredientsInput, 
+        quantities, 
+        price
+      };
+      
       localStorage.setItem('barCustomCocktails', JSON.stringify(cocktailsDB));
       initApp();
       document.getElementById('cocktailEditorModal').classList.remove('show');
@@ -965,6 +1016,10 @@
     function closeCocktailEditor() {
       document.getElementById('cocktailEditorModal').classList.remove('show');
     }
+
+    // EVENT LISTENER PER QUANTITÀ IN TEMPO REALE
+    document.getElementById('cocktailIngredients').addEventListener('input', renderQuantitiesSection);
+    document.getElementById('cocktailName').addEventListener('input', renderQuantitiesSection);
 
     // UTILITY
     function clearDay() {
