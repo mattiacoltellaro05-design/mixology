@@ -169,6 +169,7 @@
         .order-total { text-align: right; }
         .order-price { font-size: 14px; color: var(--text-secondary); }
         .order-profit { font-weight: 600; color: #34c759; }
+        .order-loss { font-weight: 600; color: #ff3b30; }
         
         /* BOTTLE CARDS */
         .bottle-card {
@@ -529,6 +530,19 @@
             }
         };
 
+        // CALCOLO COSTO CORRETTO
+        function calculateCost(cocktail) {
+            let total = 0;
+            for (let [ing, qty] of Object.entries(cocktail.ingredients || {})) {
+                const inv = inventoryData[ing];
+                if (inv && inv.pricePerLiter) {
+                    // Corretto: 1 litro = 100 cl, costo per cl = pricePerLiter / 100
+                    total += (qty * inv.pricePerLiter) / 100;
+                }
+            }
+            return Math.max(0, total); // Mai negativo
+        }
+
         // INGREDIENT SELECT
         function toggleIngredientSelect() {
             const options = document.getElementById('ingredientOptions');
@@ -671,15 +685,6 @@
             document.getElementById('cocktailModal').classList.remove('show');
         };
 
-        function calculateCost(cocktail) {
-            let total = 0;
-            for (let [ing, qty] of Object.entries(cocktail.ingredients || {})) {
-                const inv = inventoryData[ing];
-                if (inv) total += (qty * inv.pricePerLiter) / 100;
-            }
-            return total;
-        }
-
         function renderCocktails() {
             const grid = document.getElementById('cocktailsGrid');
             let html = '';
@@ -703,28 +708,45 @@
             let html = '';
             for (let [name, count] of Object.entries(dailyOrders).filter(([_,c])=>c>0).sort(([,a],[,b])=>b-a)) {
                 const data = cocktailsData[name];
+                if (!data) continue;
+                
                 const cost = calculateCost(data) * count;
                 const profit = (data.price * count) - cost;
+                const profitClass = profit >= 0 ? 'order-profit' : 'order-loss';
+                const profitSign = profit >= 0 ? '+€' : '-€';
+                
                 html += `
                     <div class="order-item">
                         <div class="order-name">${name}</div>
                         <div class="order-count">×${count}</div>
                         <div class="order-total">
                             <div class="order-price">€${(data.price*count).toFixed(1)}</div>
-                            <div class="order-profit">+€${profit.toFixed(1)}</div>
+                            <div class="${profitClass}">${profitSign}${Math.abs(profit).toFixed(1)}</div>
                         </div>
                         <button class="mint-btn" style="padding:8px 12px;font-size:14px;" onclick="removeOrder('${name.replace(/'/g,"\\\\'")}')">➖</button>
                     </div>`;
             }
             list.innerHTML = html || '<div style="text-align:center;opacity:0.5;padding:40px;">Nessun ordine</div>';
 
-            const revenue = Object.entries(dailyOrders).reduce((sum,[name,count])=>sum+(cocktailsData[name]?.price||0)*count,0);
-            const costs = Object.entries(dailyOrders).reduce((sum,[name,count])=>sum+calculateCost(cocktailsData[name])*count,0);
+            const revenue = Object.entries(dailyOrders).reduce((sum,[name,count])=>{
+                const cocktail = cocktailsData[name];
+                return sum + (cocktail?.price || 0) * count;
+            }, 0);
+            
+            const costs = Object.entries(dailyOrders).reduce((sum,[name,count])=>{
+                const cocktail = cocktailsData[name];
+                return sum + (cocktail ? calculateCost(cocktail) * count : 0);
+            }, 0);
+            
+            const totalProfit = revenue - costs;
+            const profitColor = totalProfit >= 0 ? '#34c759' : '#ff3b30';
+            const profitSign = totalProfit >= 0 ? '+€' : '-€';
+            
             document.getElementById('summaryGrid').innerHTML = `
                 <div class="summary-card card"><div>Ordini</div><div class="summary-value">${total}</div></div>
                 <div class="summary-card card"><div>Fatturato</div><div class="summary-value">€${revenue.toFixed(1)}</div></div>
                 <div class="summary-card card"><div>Costo</div><div class="summary-value" style="color:#ff3b30">€${costs.toFixed(1)}</div></div>
-                <div class="summary-card card"><div>Profitto</div><div class="summary-value" style="color:#34c759">€${(revenue-costs).toFixed(1)}</div></div>
+                <div class="summary-card card"><div>Profitto</div><div class="summary-value" style="color:${profitColor}">${profitSign}${Math.abs(totalProfit).toFixed(1)}</div></div>
             `;
         }
 
@@ -752,9 +774,9 @@
 
             const latest = stats[0];
             const avgOrders = Math.round(stats.reduce((sum,s)=>sum+s.totalOrders,0)/stats.length);
-            const avgProfit = Math.round(stats.reduce((sum,s)=>sum+s.profit,0)/stats.length * 100) / 100;
+            const avgProfit = Math.round(stats.reduce((sum,s)=>sum+Math.abs(s.profit),0)/stats.length * 100) / 100;
             const totalDays = stats.length;
-            const bestDay = stats.reduce((best,s)=>s.profit>best.profit? s : best, stats[0]);
+            const bestDay = stats.reduce((best,s)=>Math.abs(s.profit)>Math.abs(best.profit)? s : best, stats[0]);
 
             grid.innerHTML = `
                 <div class="stat-item card">
