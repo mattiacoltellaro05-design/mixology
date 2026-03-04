@@ -443,18 +443,9 @@
     <script>
         class BarManager {
             constructor() {
-                this.inventoryData = {
-                    "Vodka": {pricePerLiter: 25},
-                    "Gin": {pricePerLiter: 28},
-                    "Rum": {pricePerLiter: 22},
-                    "Tonica": {pricePerLiter: 8},
-                    "Ginger beer": {pricePerLiter: 8},
-                    "Lime": {pricePerLiter: 15}
-                };
-                this.cocktailsData = {
-                    "Moscow Mule": {price: 12, ingredients: {"Vodka": 5, "Ginger beer": 30, "Lime": 1.5}},
-                    "Gin Tonic": {price: 11, ingredients: {"Gin": 5, "Tonica": 16.5}}
-                };
+                this.inventoryData = {}
+                this.cocktailsData = {}
+            
                 this.dailyOrders = {};
                 this.editingIngredient = null;
                 this.currentCocktailIngredients = {};
