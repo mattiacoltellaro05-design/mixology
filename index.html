@@ -1,3 +1,8 @@
+// ============================================
+// BAR MANAGER v2.0 - Riscritto da zero
+// ============================================
+
+// === STATE GLOBALE ===
 let inventoryData = {};
 let cocktailsData = {};
 let dailyOrders = {};
@@ -8,26 +13,200 @@ let isDarkMode = localStorage.getItem('barDark') === 'true';
 const API_BASE = '/api';
 const todayDate = new Date().toISOString().split('T')[0];
 
-document.addEventListener('DOMContentLoaded', function() {
-  if (isDarkMode) {
-    document.documentElement.setAttribute('data-theme', 'dark');
-    document.getElementById('darkModeToggle').checked = true;
+// ============================================
+// FUNZIONI GLOBALI (disponibili subito)
+// ============================================
+
+// ORDINI COCKTAIL
+window.quickOrder = async function(cocktailName) {
+  const result = await apiPost('/quick_order', {
+    cocktail_name: cocktailName,
+    date: todayDate
+  });
+  
+  if (result.success) {
+    await initApp();
+    const btn = event.target.closest('.cocktail-btn');
+    if (btn) {
+      btn.style.transform = 'scale(0.95)';
+      setTimeout(() => btn.style.transform = '', 150);
+    }
+  } else {
+    alert(`❌ ${result.error || 'Errore ordine'}`);
+  }
+};
+
+// RISTOCK RAPIDO
+window.quickRestock = async function(name, percentage = 0.9) {
+  if (!confirm(`🔄 Riordinare "${name}" al ${Math.round(percentage * 100)}%?`)) return;
+  
+  const data = inventoryData[name];
+  if (!data) return alert('❌ Ingrediente non trovato');
+  
+  const newCurrent = Math.round(data.capacity * percentage);
+  const result = await apiPost('/update_ingredient', {
+    name, capacity: data.capacity, current: newCurrent, pricePerLiter: data.pricePerLiter
+  });
+  
+  if (result.success) {
+    await initApp();
+    alert(`✅ ${name}: ${newCurrent}cl`);
+  }
+};
+
+// RIMUOVI ORDINE
+window.removeOrder = async function(name) {
+  if (dailyOrders[name] > 1) {
+    dailyOrders[name]--;
+  } else {
+    delete dailyOrders[name];
+  }
+  await initApp();
+};
+
+// === EDITOR INGREDIENTI ===
+window.openIngredientEditor = async function(name = null) {
+  editingIngredient = name;
+  const modal = document.getElementById('ingredientEditorModal');
+  modal?.classList.add('show');
+  
+  if (name && inventoryData[name]) {
+    const data = inventoryData[name];
+    document.getElementById('ingredientEditorTitle').textContent = `✏️ Modifica ${name}`;
+    document.getElementById('ingredientName').value = name;
+    document.getElementById('ingredientCapacity').value = data.capacity;
+    document.getElementById('ingredientCurrent').value = data.current;
+    document.getElementById('ingredientPrice').value = data.pricePerLiter;
+    document.getElementById('deleteIngredientBtn').style.display = 'inline-flex';
+  } else {
+    document.getElementById('ingredientEditorTitle').textContent = '➕ Nuovo Ingrediente';
+    document.getElementById('ingredientName').value = '';
+    document.getElementById('ingredientCapacity').value = '1000';
+    document.getElementById('ingredientCurrent').value = '1000';
+    document.getElementById('ingredientPrice').value = '25';
+    document.getElementById('deleteIngredientBtn').style.display = 'none';
+  }
+};
+
+window.saveIngredient = async function() {
+  const name = document.getElementById('ingredientName').value.trim();
+  const capacity = parseFloat(document.getElementById('ingredientCapacity').value) || 1000;
+  const current = parseFloat(document.getElementById('ingredientCurrent').value) || 0;
+  const price = parseFloat(document.getElementById('ingredientPrice').value) || 0;
+  
+  if (!name) return alert('❌ Nome richiesto!');
+  if (capacity <= 0) return alert('❌ Capacità deve essere > 0!');
+  
+  const result = await apiPost('/update_ingredient', { name, capacity, current, pricePerLiter: price });
+  if (result.success) {
+    await initApp();
+    closeIngredientEditor();
+  }
+};
+
+window.deleteIngredient = async function() {
+  if (!editingIngredient || !confirm(`🗑️ Elimina "${editingIngredient}"?`)) return;
+  
+  const result = await apiPost('/update_ingredient', { name: editingIngredient, delete: true });
+  if (result.success) {
+    await initApp();
+    closeIngredientEditor();
+  }
+};
+
+window.closeIngredientEditor = function() {
+  document.getElementById('ingredientEditorModal').classList.remove('show');
+};
+
+// === EDITOR COCKTAIL ===
+window.openCocktailEditor = async function(name = null) {
+  editingCocktail = name;
+  const modal = document.getElementById('cocktailEditorModal');
+  modal?.classList.add('show');
+  
+  if (name && cocktailsData[name]) {
+    const data = cocktailsData[name];
+    document.getElementById('cocktailEditorTitle').textContent = `✏️ Modifica ${name}`;
+    document.getElementById('cocktailName').value = name;
+    document.getElementById('cocktailPrice').value = data.price;
+    document.getElementById('deleteCocktailBtn').style.display = 'inline-flex';
+  } else {
+    document.getElementById('cocktailEditorTitle').textContent = '➕ Nuovo Cocktail';
+    document.getElementById('cocktailName').value = '';
+    document.getElementById('cocktailPrice').value = '12';
+    document.getElementById('deleteCocktailBtn').style.display = 'none';
   }
   
-  document.getElementById('currentDate').textContent = new Date().toLocaleDateString('it-IT', {
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-  });
-  
-  initTabs();
-  initApp();
-  
-  document.querySelectorAll('.overlay').forEach(overlay => {
-    overlay.addEventListener('click', function(e) {
-      if (e.target === overlay) overlay.classList.remove('show');
-    });
-  });
-});
+  renderIngredientsSelector();
+};
 
+window.saveCocktail = async function() {
+  const name = document.getElementById('cocktailName').value.trim();
+  const price = parseFloat(document.getElementById('cocktailPrice').value) || 0;
+  
+  if (!name) return alert('❌ Nome cocktail richiesto!');
+  if (price <= 0) return alert('❌ Prezzo deve essere > 0!');
+  
+  const quantities = {};
+  Object.keys(inventoryData).forEach(ingredient => {
+    const checkbox = document.getElementById(`ing_${ingredient.replace(/'/g, '')}`);
+    const qtyInput = checkbox?.parentNode?.querySelector('.ingredient-qty');
+    if (checkbox?.checked) {
+      const qty = parseFloat(qtyInput?.value) || 0;
+      if (qty > 0) quantities[ingredient] = qty;
+    }
+  });
+  
+  if (Object.keys(quantities).length === 0) return alert('❌ Seleziona almeno un ingrediente!');
+  
+  const result = await apiPost('/update_cocktail', { name, price, quantities });
+  if (result.success) {
+    await initApp();
+    closeCocktailEditor();
+    alert(`✅ Cocktail "${name}" salvato!`);
+  }
+};
+
+window.deleteCocktail = async function() {
+  if (!editingCocktail || !confirm(`🗑️ Elimina "${editingCocktail}"?`)) return;
+  
+  const result = await apiPost('/update_cocktail', { name: editingCocktail, delete: true });
+  if (result.success) {
+    await initApp();
+    closeCocktailEditor();
+  }
+};
+
+window.closeCocktailEditor = function() {
+  document.getElementById('cocktailEditorModal').classList.remove('show');
+};
+
+// === UTILITY ===
+window.clearDay = async function() {
+  if (!confirm('Azzerare ordini di oggi?')) return;
+  await initApp();
+};
+
+window.toggleDarkMode = function() {
+  isDarkMode = !isDarkMode;
+  localStorage.setItem('barDark', isDarkMode);
+  document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
+};
+
+window.exportAll = function() {
+  window.open('/api/export', '_blank');
+};
+
+window.resetAll = function() {
+  if (!confirm('❌ RESET TOTALE? Cancella TUTTI i dati!')) return;
+  if (!confirm('🔄 SICURO? Non si può annullare!')) return;
+  localStorage.clear();
+  location.reload();
+};
+
+// ============================================
+// API HELPERS
+// ============================================
 async function apiGet(endpoint) {
   try {
     const response = await fetch(`${API_BASE}${endpoint}`);
@@ -52,68 +231,39 @@ async function apiPost(endpoint, data) {
   }
 }
 
-async function initApp() {
-  document.body.classList.add('loading');
-  
-  const [inventory, cocktails, orders] = await Promise.all([
-    apiGet('/inventory'),
-    apiGet('/cocktails'),
-    apiGet(`/orders/${todayDate}`)
-  ]);
-  
-  inventoryData = inventory;
-  cocktailsData = cocktails;
-  dailyOrders = orders;
-  
-  renderReorderList();
-  renderCocktails();
-  renderOrders();
-  renderInventory();
-  renderAnalytics();
-  
-  document.body.classList.remove('loading');
+// ============================================
+// RENDERING ENGINE
+// ============================================
+function safeHtml(name) {
+  return name.replace(/'/g, "\\'").replace(/"/g, '\\"');
 }
 
-window.quickOrder = async function(cocktailName) {
-  const result = await apiPost('/quick_order', {
-    cocktail_name: cocktailName,
-    date: todayDate
-  });
+function calculateCocktailCost(name) {
+  const data = cocktailsData[name];
+  if (!data?.ingredients) return 0;
   
-  if (result.success) {
-    initApp();
-    const btn = event.target.closest('.cocktail-btn');
-    btn.style.transform = 'scale(0.95)';
-    setTimeout(() => btn.style.transform = '', 150);
-  } else {
-    alert(`❌ ${result.error || 'Errore ordine'}`);
-  }
-};
-
-function initTabs() {
-  document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', function() {
-      const tabName = this.dataset.tab;
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-      this.classList.add('active');
-      document.getElementById(tabName + 'Tab').classList.add('active');
-      if (tabName === 'analytics') renderAnalytics();
-    });
+  let total = 0;
+  Object.entries(data.ingredients).forEach(([ingredient, qty]) => {
+    const inv = inventoryData[ingredient];
+    if (inv) total += (qty * inv.pricePerLiter) / 100;
   });
+  return total;
 }
 
 function renderReorderList() {
   const critical = [], warning = [];
+  
   Object.entries(inventoryData).forEach(([name, data]) => {
     const percentage = (data.current / data.capacity) * 100;
-    if (percentage < 20) critical.push({name, data, percentage});
-    else if (percentage < 40) warning.push({name, data, percentage});
+    if (percentage < 20) critical.push({ name, percentage });
+    else if (percentage < 40) warning.push({ name, percentage });
   });
   
   const section = document.getElementById('reorderSection');
-  const hasItems = critical.length || warning.length;
-  if (!hasItems) return section.style.display = 'none';
+  if (!critical.length && !warning.length) {
+    section.style.display = 'none';
+    return;
+  }
   
   section.style.display = 'block';
   section.innerHTML = `
@@ -126,8 +276,8 @@ function renderReorderList() {
             <div class="reorder-item critical">
               <div><strong>${name}</strong></div>
               <div>
-                <button class="mint-btn btn-restock" onclick="quickRestock('${name}')">🔄 90%</button>
-                <button class="mint-btn btn-edit" onclick="openIngredientEditor('${name}')">✏️</button>
+                <button class="mint-btn btn-restock" onclick="quickRestock('${safeHtml(name)}')">🔄 90%</button>
+                <button class="mint-btn btn-edit" onclick="openIngredientEditor('${safeHtml(name)}')">✏️</button>
               </div>
             </div>
           `).join('')}
@@ -139,7 +289,7 @@ function renderReorderList() {
           ${warning.map(({name}) => `
             <div class="reorder-item">
               <div><strong>${name}</strong></div>
-              <button class="mint-btn btn-restock" onclick="quickRestock('${name}')">🔄 90%</button>
+              <button class="mint-btn btn-restock" onclick="quickRestock('${safeHtml(name)}')">🔄 90%</button>
             </div>
           `).join('')}
         </div>
@@ -148,66 +298,38 @@ function renderReorderList() {
   `;
 }
 
-window.quickRestock = async function(name, percentage = 0.9) {
-  if (confirm(`🔄 Riordinare ${name} al ${Math.round(percentage * 100)}%?`)) {
-    const data = inventoryData[name];
-    const newCurrent = Math.round(data.capacity * percentage);
-    
-    const result = await apiPost('/update_ingredient', {
-      name,
-      capacity: data.capacity,
-      current: newCurrent,
-      pricePerLiter: data.pricePerLiter
-    });
-    
-    if (result.success) {
-      initApp();
-      alert(`✅ ${name}: ${newCurrent}cl`);
-    }
-  }
-};
-
-function calculateCocktailCost(name) {
-  const data = cocktailsData[name];
-  if (!data?.ingredients) return 0;
-  let total = 0;
-  Object.entries(data.ingredients).forEach(([ingredient, qty]) => {
-    const value = inventoryData[ingredient];
-    if (value) total += (qty * value.pricePerLiter) / 100;
-  });
-  return total;
-}
-
 function renderCocktails() {
-  document.getElementById('cocktailsGrid').innerHTML = Object.keys(cocktailsData)
-    .sort()
-    .map(name => {
-      const data = cocktailsData[name];
-      const count = dailyOrders[name] || 0;
-      const cost = calculateCocktailCost(name);
-      const profit = data.price - cost;
-      return `
-        <div class="cocktail-btn ${count > 0 ? 'selected' : ''}" onclick="quickOrder('${name.replace(/'/g, "\\'")}')">
-          <div style="font-size:0.9rem;line-height:1.1;">${name}</div>
-          <div class="cocktail-count">${count}</div>
-          <div class="cocktail-price">€${data.price}</div>
-          <div class="cocktail-profit">+€${profit.toFixed(2)}</div>
-        </div>
-      `;
-    }).join('');
+  const grid = document.getElementById('cocktailsGrid');
+  grid.innerHTML = Object.keys(cocktailsData).sort().map(name => {
+    const data = cocktailsData[name];
+    const count = dailyOrders[name] || 0;
+    const cost = calculateCocktailCost(name);
+    const profit = data.price - cost;
+    
+    return `
+      <div class="cocktail-btn ${count > 0 ? 'selected' : ''}" onclick="quickOrder('${safeHtml(name)}')">
+        <div style="font-size:0.9rem;line-height:1.1;">${name}</div>
+        <div class="cocktail-count">${count}</div>
+        <div class="cocktail-price">€${data.price.toFixed(1)}</div>
+        <div class="cocktail-profit">+€${profit.toFixed(1)}</div>
+      </div>
+    `;
+  }).join('') || '<div style="grid-column:1/-1;text-align:center;opacity:0.5;padding:40px;">Aggiungi un cocktail!</div>';
 }
 
 function renderOrders() {
   const total = Object.values(dailyOrders).reduce((a, b) => a + b, 0);
   document.getElementById('totalOrders').textContent = total;
   
-  document.getElementById('ordersList').innerHTML = Object.entries(dailyOrders)
+  const list = document.getElementById('ordersList');
+  list.innerHTML = Object.entries(dailyOrders)
     .filter(([_, count]) => count > 0)
     .sort(([_, a], [__, b]) => b - a)
     .map(([name, count]) => {
       const price = cocktailsData[name]?.price || 12;
       const cost = calculateCocktailCost(name) * count;
       const profit = (price * count) - cost;
+      
       return `
         <div class="order-item">
           <span>${name}</span>
@@ -216,19 +338,19 @@ function renderOrders() {
             €${(price * count).toFixed(1)} 
             <span style="color:var(--profit);">+€${profit.toFixed(1)}</span>
           </div>
-          <button class="mint-btn btn-remove" onclick="removeOrder('${name.replace(/'/g, "\\'")}')">➖</button>
+          <button class="mint-btn btn-remove" onclick="removeOrder('${safeHtml(name)}')">➖</button>
         </div>
       `;
     }).join('') || '<div style="opacity:0.5;text-align:center;padding:20px">Nessun ordine</div>';
 
-  const grid = document.getElementById('summaryGrid');
+  // SUMMARY GRID
   const revenue = Object.entries(dailyOrders).reduce((sum, [name, count]) => 
     sum + (cocktailsData[name]?.price || 12) * count, 0);
   const costs = Object.entries(dailyOrders).reduce((sum, [name, count]) => 
     sum + calculateCocktailCost(name) * count, 0);
   const profit = revenue - costs;
   
-  grid.innerHTML = `
+  document.getElementById('summaryGrid').innerHTML = `
     <div class="summary-card">
       <div style="font-size:1.1rem;opacity:0.8;">Cocktail</div>
       <div class="summary-value">${total}</div>
@@ -248,24 +370,17 @@ function renderOrders() {
   `;
 }
 
-window.removeOrder = async function(name) {
-  if (dailyOrders[name] > 1) {
-    dailyOrders[name]--;
-  } else {
-    delete dailyOrders[name];
-  }
-  initApp();
-};
-
 function renderInventory() {
-  document.getElementById('inventoryGrid').innerHTML = Object.entries(inventoryData)
+  const grid = document.getElementById('inventoryGrid');
+  grid.innerHTML = Object.entries(inventoryData)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([name, data]) => {
       const percentage = Math.min(100, (data.current / data.capacity) * 100);
       const low = percentage < 20;
       const costPerCl = (data.pricePerLiter / 100).toFixed(2);
+      
       return `
-        <div class="bottle-card ${low ? 'bottle-low' : ''}" onclick="openIngredientEditor('${name.replace(/'/g, "\\'")}')">
+        <div class="bottle-card ${low ? 'bottle-low' : ''}" onclick="openIngredientEditor('${safeHtml(name)}')">
           <div style="font-weight:600;font-size:1.1rem;">${name}</div>
           <div style="font-size:1.3rem;font-weight:bold;">${Math.round(data.current)}cl</div>
           <div style="font-size:0.8rem;opacity:0.7;">${data.capacity}cl</div>
@@ -274,8 +389,8 @@ function renderInventory() {
             <div style="height:100%;width:${percentage}%;background:var(--accent);transition:width 0.3s"></div>
           </div>
           <div style="margin-top:10px;gap:4px;display:flex;justify-content:center;">
-            <button class="mint-btn btn-restock" onclick="event.stopPropagation();quickRestock('${name.replace(/'/g, \"\\\\'\")}')">🔄</button>
-            <button class="mint-btn btn-edit" onclick="event.stopPropagation();openIngredientEditor('${name.replace(/'/g, \"\\\\'\")}')">✏️</button>
+            <button class="mint-btn btn-restock" onclick="event.stopPropagation();quickRestock('${safeHtml(name)}')">🔄</button>
+            <button class="mint-btn btn-edit" onclick="event.stopPropagation();openIngredientEditor('${safeHtml(name)}')">✏️</button>
           </div>
         </div>
       `;
@@ -283,6 +398,7 @@ function renderInventory() {
 }
 
 function renderAnalytics() {
+  // TOP COCKTAILS
   document.getElementById('topCocktails').innerHTML = Object.entries(dailyOrders)
     .sort(([_, a], [__, b]) => b - a)
     .slice(0, 5)
@@ -297,6 +413,7 @@ function renderAnalytics() {
       `;
     }).join('') || '<div style="text-align:center;opacity:0.5;">Nessun dato</div>';
 
+  // FORECAST
   document.getElementById('forecastList').innerHTML = Object.entries(inventoryData)
     .filter(([_, data]) => (data.current / data.capacity) < 0.5)
     .sort(([_, a], [__, b]) => (a.current / (a.capacity * 0.05)) - (b.current / (b.capacity * 0.05)))
@@ -304,94 +421,15 @@ function renderAnalytics() {
     .map(([name, data]) => {
       const days = Math.round((data.current / (data.capacity * 0.05)) / 2);
       const status = days <= 2 ? '🔴 URGENTE' : days <= 7 ? '🟡 PRESTO' : '🟢 OK';
+      const color = days <= 2 ? '#ff6b7a' : days <= 7 ? '#f4a261' : '#2a9d8f';
+      
       return `
-        <div style="padding:12px;border-radius:12px;background:${
-          days <= 2 ? '#ff6b7a' : days <= 7 ? '#f4a261' : '#2a9d8f'
-        };color:white;margin-bottom:8px;">
+        <div style="padding:12px;border-radius:12px;background:${color};color:white;margin-bottom:8px;">
           ${name}: ${Math.round(data.current)}cl → ${status} (${days}gg)
         </div>
       `;
     }).join('') || '<div style="text-align:center;opacity:0.5;">Tutti OK!</div>';
 }
-
-// MODALS FUNCTIONS
-window.openIngredientEditor = async function(name = null) {
-  editingIngredient = name;
-  document.getElementById('ingredientEditorModal').classList.add('show');
-  
-  if (name && inventoryData[name]) {
-    const data = inventoryData[name];
-    document.getElementById('ingredientEditorTitle').textContent = `✏️ Modifica ${name}`;
-    document.getElementById('ingredientName').value = name;
-    document.getElementById('ingredientCapacity').value = data.capacity;
-    document.getElementById('ingredientCurrent').value = data.current;
-    document.getElementById('ingredientPrice').value = data.pricePerLiter;
-    document.getElementById('deleteIngredientBtn').style.display = 'inline-flex';
-  } else {
-    document.getElementById('ingredientEditorTitle').textContent = '➕ Nuovo Ingrediente';
-    document.getElementById('ingredientName').value = '';
-    document.getElementById('ingredientCapacity').value = '';
-    document.getElementById('ingredientCurrent').value = '';
-    document.getElementById('ingredientPrice').value = '';
-    document.getElementById('deleteIngredientBtn').style.display = 'none';
-  }
-};
-
-window.saveIngredient = async function() {
-  const name = document.getElementById('ingredientName').value.trim();
-  const capacity = parseFloat(document.getElementById('ingredientCapacity').value) || 1000;
-  const current = parseFloat(document.getElementById('ingredientCurrent').value) || 0;
-  const price = parseFloat(document.getElementById('ingredientPrice').value) || 0;
-  
-  if (!name) { alert('❌ Nome richiesto!'); return; }
-  
-  const result = await apiPost('/update_ingredient', {
-    name, capacity, current, pricePerLiter: price
-  });
-  
-  if (result.success) {
-    initApp();
-    document.getElementById('ingredientEditorModal').classList.remove('show');
-  }
-};
-
-window.deleteIngredient = async function() {
-  if (editingIngredient && confirm(`🗑️ Elimina "${editingIngredient}"?`)) {
-    const result = await apiPost('/update_ingredient', {
-      name: editingIngredient,
-      delete: true
-    });
-    
-    if (result.success) {
-      initApp();
-      document.getElementById('ingredientEditorModal').classList.remove('show');
-    }
-  }
-};
-
-window.closeIngredientEditor = function() {
-  document.getElementById('ingredientEditorModal').classList.remove('show');
-};
-
-window.openCocktailEditor = async function(name = null) {
-  editingCocktail = name;
-  document.getElementById('cocktailEditorModal').classList.add('show');
-  
-  if (name && cocktailsData[name]) {
-    const data = cocktailsData[name];
-    document.getElementById('cocktailEditorTitle').textContent = `✏️ Modifica ${name}`;
-    document.getElementById('cocktailName').value = name;
-    document.getElementById('cocktailPrice').value = data.price;
-    document.getElementById('deleteCocktailBtn').style.display = 'inline-flex';
-  } else {
-    document.getElementById('cocktailEditorTitle').textContent = '➕ Nuovo Cocktail';
-    document.getElementById('cocktailName').value = '';
-    document.getElementById('cocktailPrice').value = '';
-    document.getElementById('deleteCocktailBtn').style.display = 'none';
-  }
-  
-  renderIngredientsSelector();
-};
 
 function renderIngredientsSelector() {
   const selector = document.getElementById('ingredientsSelector');
@@ -399,100 +437,92 @@ function renderIngredientsSelector() {
   const cocktailData = cocktailName && cocktailsData[cocktailName];
   
   selector.innerHTML = Object.keys(inventoryData).sort().map(ingredient => {
-    const isSelected = cocktailData && cocktailData.ingredients && cocktailData.ingredients[ingredient];
+    const isSelected = cocktailData?.ingredients?.[ingredient];
     const qty = cocktailData?.ingredients?.[ingredient] || '';
+    const safeId = ingredient.replace(/'/g, '');
+    
     return `
       <div class="ingredient-checkbox">
-        <input type="checkbox" id="ing_${ingredient.replace(/'/g, '')}" ${isSelected ? 'checked' : ''}>
-        <label for="ing_${ingredient.replace(/'/g, '')}">${ingredient}</label>
+        <input type="checkbox" id="ing_${safeId}" ${isSelected ? 'checked' : ''}>
+        <label for="ing_${safeId}">${ingredient}</label>
         <input type="number" class="ingredient-qty" value="${qty}" min="0" step="0.5" placeholder="cl">
       </div>
     `;
   }).join('');
 }
 
-window.saveCocktail = async function() {
-  const name = document.getElementById('cocktailName').value.trim();
-  const price = parseFloat(document.getElementById('cocktailPrice').value) || 0;
+// ============================================
+// INIT & EVENT HANDLERS
+// ============================================
+async function initApp() {
+  document.body.classList.add('loading');
   
-  if (!name) { alert('❌ Nome cocktail richiesto!'); return; }
-  if (price <= 0) { alert('❌ Prezzo richiesto!'); return; }
-  
-  const quantities = {};
-  Object.keys(inventoryData).forEach(ingredient => {
-    const checkbox = document.getElementById(`ing_${ingredient.replace(/'/g, '')}`);
-    const qtyInput = checkbox?.parentNode?.querySelector('.ingredient-qty');
-    if (checkbox?.checked) {
-      const qty = parseFloat(qtyInput?.value) || 0;
-      if (qty > 0) {
-        quantities[ingredient] = qty;
-      }
-    }
-  });
-  
-  if (Object.keys(quantities).length === 0) {
-    alert('❌ Seleziona almeno un ingrediente con quantità!');
-    return;
-  }
-  
-  const result = await apiPost('/update_cocktail', {
-    name,
-    price,
-    quantities
-  });
-  
-  if (result.success) {
-    initApp();
-    document.getElementById('cocktailEditorModal').classList.remove('show');
-    alert(`✅ Cocktail "${name}" salvato!`);
-  }
-};
-
-window.deleteCocktail = async function() {
-  if (editingCocktail && confirm(`🗑️ Elimina "${editingCocktail}"?`)) {
-    const result = await apiPost('/update_cocktail', {
-      name: editingCocktail,
-      delete: true
-    });
+  try {
+    const [inventory, cocktails, orders] = await Promise.all([
+      apiGet('/inventory'),
+      apiGet('/cocktails'),
+      apiGet(`/orders/${todayDate}`)
+    ]);
     
-    if (result.success) {
-      initApp();
-      document.getElementById('cocktailEditorModal').classList.remove('show');
-    }
+    inventoryData = inventory;
+    cocktailsData = cocktails;
+    dailyOrders = orders;
+    
+    renderReorderList();
+    renderCocktails();
+    renderOrders();
+    renderInventory();
+    renderAnalytics();
+  } catch (error) {
+    console.error('Init error:', error);
+  } finally {
+    document.body.classList.remove('loading');
   }
-};
-
-window.closeCocktailEditor = function() {
-  document.getElementById('cocktailEditorModal').classList.remove('show');
-};
-
-window.clearDay = async function() {
-  if (confirm('Azzerare ordini oggi?')) {
-    // In Flask, gli ordini sono storici - basta ricaricare
-    initApp();
-  }
-};
-
-function toggleSettings() {
-  document.getElementById('settingsOverlay').classList.toggle('show');
 }
 
-window.toggleDarkMode = function() {
-  isDarkMode = !isDarkMode;
-  localStorage.setItem('barDark', isDarkMode);
-  document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : '');
-};
+function initTabs() {
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const tabName = this.dataset.tab;
+      
+      // Update buttons
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      
+      this.classList.add('active');
+      document.getElementById(tabName + 'Tab')?.classList.add('active');
+      
+      // Render specific tab
+      if (tabName === 'analytics') renderAnalytics();
+    });
+  });
+}
 
-window.exportAll = function() {
-  window.open('/api/export', '_blank');
-};
+function initOverlays() {
+  document.querySelectorAll('.overlay').forEach(overlay => {
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) overlay.classList.remove('show');
+    });
+  });
+}
 
-window.resetAll = function() {
-  if (confirm('❌ RESET TOTALE? Questo cancellerà TUTTI i dati!')) {
-    if (confirm('🔄 SICURO? Non si può annullare!')) {
-      localStorage.clear();
-      location.reload();
-    }
+// ============================================
+// BOOTSTRAP
+// ============================================
+document.addEventListener('DOMContentLoaded', function() {
+  // Dark mode
+  if (isDarkMode) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    document.getElementById('darkModeToggle')?.setAttribute('checked', true);
   }
-};
-
+  
+  // Data corrente italiana
+  document.getElementById('currentDate').textContent = new Date().toLocaleDateString('it-IT', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+  });
+  
+  // Init UI
+  initTabs();
+  initOverlays();
+  initApp();
+});
