@@ -243,6 +243,23 @@
             margin-top: 4px;
         }
         
+        /* STATS GRID */
+        .stats-grid {
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin: 20px 0;
+        }
+        .stat-item {
+            background: white;
+            padding: 20px;
+            border-radius: 16px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            border: 1px solid #e5e5e7;
+        }
+        .stat-label { color: #8e8e93; font-size: 14px; margin-bottom: 4px; }
+        .stat-value { font-size: 24px; font-weight: 700; color: #0f5132; }
+        
         /* TOTAL BADGE */
         .total-badge {
             position: fixed;
@@ -272,7 +289,7 @@
         <div class="header-buttons">
             <button class="mint-btn" onclick="openIngredientModal()">➕ Ingrediente</button>
             <button class="mint-btn" onclick="openCocktailModal()">🍹 Cocktail</button>
-            <button class="mint-btn" onclick="clearDay()">🗑️ Azzera</button>
+            <button class="mint-btn" onclick="endDay()">🏁 Termina Giornata</button>
         </div>
     </div>
 
@@ -280,6 +297,7 @@
         <button class="tab-btn active" data-tab="orders">Ordini</button>
         <button class="tab-btn" data-tab="cocktails">Cocktails</button>
         <button class="tab-btn" data-tab="inventory">Inventario</button>
+        <button class="tab-btn" data-tab="stats">📊 Stats</button>
     </div>
 
     <div id="ordersTab" class="tab-content active">
@@ -293,6 +311,10 @@
 
     <div id="inventoryTab" class="tab-content">
         <div class="grid" id="inventoryGrid"></div>
+    </div>
+
+    <div id="statsTab" class="tab-content">
+        <div class="stats-grid grid" id="statsGrid"></div>
     </div>
 
     <!-- INGREDIENT MODAL -->
@@ -315,7 +337,7 @@
         </div>
     </div>
 
-    <!-- COCKTAIL MODAL -->
+    <!-- COCKTAIL MODAL (SOLO NUOVI) -->
     <div id="cocktailModal" class="overlay">
         <div class="modal">
             <div class="modal-header">
@@ -328,7 +350,6 @@
             </div>
             <div class="modal-buttons">
                 <button class="mint-btn" onclick="saveCocktail()">Salva</button>
-                <button id="deleteCocktailBtn" class="mint-btn" onclick="deleteCocktail()" style="display:none">Elimina</button>
                 <button class="mint-btn" onclick="closeCocktailModal()">Annulla</button>
             </div>
         </div>
@@ -349,9 +370,8 @@
         };
         let dailyOrders = {};
         let editingIngredient = null;
-        let editingCocktail = null;
 
-        // LocalStorage API - ZERO CONSUMO
+        // LocalStorage API
         async function loadData() {
             try {
                 const data = JSON.parse(localStorage.getItem('barData') || '{}');
@@ -365,8 +385,51 @@
             localStorage.setItem('barData', JSON.stringify({
                 inventory: inventoryData,
                 cocktails: cocktailsData,
-                orders: dailyOrders
+                orders: dailyOrders,
+                stats: JSON.parse(localStorage.getItem('barStats') || '[]')
             }));
+        }
+
+        // TERMINA GIORNATA
+        window.endDay = async function() {
+            if (confirm('Terminare giornata? Gli ordini verranno archiviati nelle statistiche.')) {
+                const dayStats = calculateDayStats();
+                const stats = JSON.parse(localStorage.getItem('barStats') || '[]');
+                stats.unshift(dayStats);
+                localStorage.setItem('barStats', JSON.stringify(stats.slice(0, 30))); // Max 30 giorni
+                
+                dailyOrders = {};
+                await saveData();
+                renderAll();
+            }
+        };
+
+        function calculateDayStats() {
+            const stats = {
+                date: new Date().toLocaleDateString('it-IT'),
+                totalOrders: Object.values(dailyOrders).reduce((a,b)=>a+b,0),
+                revenue: 0,
+                costs: 0,
+                profit: 0,
+                topCocktail: null,
+                topCocktailCount: 0
+            };
+            
+            for (let [name, count] of Object.entries(dailyOrders)) {
+                const cocktail = cocktailsData[name];
+                if (cocktail) {
+                    const cost = calculateCost(cocktail) * count;
+                    stats.revenue += cocktail.price * count;
+                    stats.costs += cost;
+                    stats.profit += (cocktail.price * count) - cost;
+                    
+                    if (count > stats.topCocktailCount) {
+                        stats.topCocktail = name;
+                        stats.topCocktailCount = count;
+                    }
+                }
+            }
+            return stats;
         }
 
         // FUNZIONI PRINCIPALI
@@ -415,7 +478,6 @@
             if (!name) return alert('Nome richiesto');
             
             const data = {
-                name,
                 capacity: parseFloat(document.getElementById('ingredientCapacity').value) || 1000,
                 current: parseFloat(document.getElementById('ingredientCurrent').value) || 0,
                 pricePerLiter: parseFloat(document.getElementById('ingredientPrice').value) || 0
@@ -439,42 +501,24 @@
             document.getElementById('ingredientModal').classList.remove('show');
         };
 
-        window.openCocktailModal = function(name) {
-            editingCocktail = name;
-            const modal = document.getElementById('cocktailModal');
-            const title = document.getElementById('cocktailTitle');
-            
-            if (name && cocktailsData[name]) {
-                const data = cocktailsData[name];
-                title.textContent = '✏️ Modifica ' + name;
-                document.getElementById('cocktailName').value = name;
-                document.getElementById('cocktailPrice').value = data.price;
-                document.getElementById('deleteCocktailBtn').style.display = 'inline-block';
-            } else {
-                title.textContent = '🍹 Nuovo Cocktail';
-                document.getElementById('cocktailName').value = '';
-                document.getElementById('cocktailPrice').value = '12';
-                document.getElementById('deleteCocktailBtn').style.display = 'none';
-            }
-            
+        // Cocktail - SOLO CREAZIONE NUOVI
+        window.openCocktailModal = function() {
+            document.getElementById('cocktailTitle').textContent = '🍹 Nuovo Cocktail';
+            document.getElementById('cocktailName').value = '';
+            document.getElementById('cocktailPrice').value = '12';
             renderIngredientsList();
-            modal.classList.add('show');
+            document.getElementById('cocktailModal').classList.add('show');
         };
 
         function renderIngredientsList() {
             const container = document.getElementById('ingredientsList');
-            const cocktailName = document.getElementById('cocktailName').value;
-            const cocktail = cocktailsData[cocktailName];
-            
             let html = '';
             for (let name of Object.keys(inventoryData).sort()) {
-                const checked = cocktail?.ingredients?.[name] ? 'checked' : '';
-                const value = cocktail?.ingredients?.[name] || '';
                 html += `
                     <div class="ingredient-row">
-                        <input type="checkbox" id="ing_${name.replace(/[^a-z0-9]/gi,'')}" ${checked}>
+                        <input type="checkbox" id="ing_${name.replace(/[^a-z0-9]/gi,'')}">
                         <label for="ing_${name.replace(/[^a-z0-9]/gi,'')}">${name}</label>
-                        <input type="number" step="0.5" min="0" value="${value}" placeholder="cl">
+                        <input type="number" step="0.5" min="0" placeholder="cl">
                     </div>`;
             }
             container.innerHTML = html;
@@ -483,6 +527,7 @@
         window.saveCocktail = async function() {
             const name = document.getElementById('cocktailName').value.trim();
             if (!name) return alert('Nome richiesto');
+            if (cocktailsData[name]) return alert('Cocktail già esistente');
             
             const price = parseFloat(document.getElementById('cocktailPrice').value);
             if (!price || price <= 0) return alert('Prezzo richiesto');
@@ -505,24 +550,8 @@
             renderAll();
         };
 
-        window.deleteCocktail = async function() {
-            if (!editingCocktail || !confirm('Elimina?')) return;
-            delete cocktailsData[editingCocktail];
-            await saveData();
-            document.getElementById('cocktailModal').classList.remove('show');
-            renderAll();
-        };
-
         window.closeCocktailModal = function() {
             document.getElementById('cocktailModal').classList.remove('show');
-        };
-
-        window.clearDay = async function() {
-            if (confirm('Azzerare ordini?')) {
-                dailyOrders = {};
-                await saveData();
-                renderAll();
-            }
         };
 
         function calculateCost(cocktail) {
@@ -539,15 +568,14 @@
             let html = '';
             for (let [name, data] of Object.entries(cocktailsData).sort(([a],[b])=>a.localeCompare(b))) {
                 const count = dailyOrders[name] || 0;
-                const cost = calculateCost(data);
                 html += `
-                    <div class="cocktail-btn ${count > 0 ? 'selected' : ''}" onclick="quickOrder('${name.replace(/'/g,"\\'")}')">
+                    <div class="cocktail-btn ${count > 0 ? 'selected' : ''}" onclick="quickOrder('${name.replace(/'/g,"\\\\'")}')">
                         <div class="cocktail-name">${name}</div>
                         <div class="cocktail-count">${count}</div>
                         <div class="cocktail-price">€${data.price.toFixed(1)}</div>
                     </div>`;
             }
-            grid.innerHTML = html || '<div class="card" style="text-align:center;opacity:0.5;">Aggiungi cocktail</div>';
+            grid.innerHTML = html || '<div class="card" style="text-align:center;opacity:0.5;">Nessun cocktail. Aggiungine uno!</div>';
         }
 
         function renderOrders() {
@@ -568,7 +596,7 @@
                             <div class="order-price">€${(data.price*count).toFixed(1)}</div>
                             <div class="order-profit">+€${profit.toFixed(1)}</div>
                         </div>
-                        <button class="mint-btn" style="padding:8px 12px;font-size:14px;" onclick="removeOrder('${name.replace(/'/g,"\\'")}')">➖</button>
+                        <button class="mint-btn" style="padding:8px 12px;font-size:14px;" onclick="removeOrder('${name.replace(/'/g,"\\\\'")}')">➖</button>
                     </div>`;
             }
             list.innerHTML = html || '<div style="text-align:center;opacity:0.5;padding:40px;">Nessun ordine</div>';
@@ -590,7 +618,7 @@
                 const pct = Math.round((data.current/data.capacity)*100);
                 const low = pct < 20;
                 html += `
-                    <div class="bottle-card card ${low?'bottle-low':''}" onclick="openIngredientModal('${name.replace(/'/g,"\\'")}')">
+                    <div class="bottle-card card ${low?'bottle-low':''}" onclick="openIngredientModal('${name.replace(/'/g,"\\\\'")}')">
                         <div style="font-weight:700;font-size:17px;margin-bottom:4px;">${name}</div>
                         <div style="font-size:24px;font-weight:800;color:#0f5132;">${Math.round(data.current)}cl</div>
                         <div class="bottle-progress">
@@ -602,10 +630,54 @@
             grid.innerHTML = html;
         }
 
+        function renderStats() {
+            const stats = JSON.parse(localStorage.getItem('barStats') || '[]');
+            const grid = document.getElementById('statsGrid');
+            
+            if (stats.length === 0) {
+                grid.innerHTML = '<div class="card" style="text-align:center;opacity:0.5;padding:40px;grid-column:1/-1;">Nessuna statistica disponibile</div>';
+                return;
+            }
+
+            const latest = stats[0];
+            const avgOrders = Math.round(stats.reduce((sum,s)=>sum+s.totalOrders,0)/stats.length);
+            const avgProfit = Math.round(stats.reduce((sum,s)=>sum+s.profit,0)/stats.length * 100) / 100;
+            const totalDays = stats.length;
+            const bestDay = stats.reduce((best,s)=>s.profit>best.profit? s : best, stats[0]);
+
+            grid.innerHTML = `
+                <div class="stat-item card">
+                    <div class="stat-label">Oggi</div>
+                    <div class="stat-value">${latest.totalOrders}</div>
+                </div>
+                <div class="stat-item card">
+                    <div class="stat-label">Media ordini</div>
+                    <div class="stat-value">${avgOrders}</div>
+                </div>
+                <div class="stat-item card">
+                    <div class="stat-label">Media profitto</div>
+                    <div class="stat-value">€${avgProfit}</div>
+                </div>
+                <div class="stat-item card">
+                    <div class="stat-label">Giorni totali</div>
+                    <div class="stat-value">${totalDays}</div>
+                </div>
+                <div class="stat-item card" style="grid-column:span 2;">
+                    <div class="stat-label">Miglior cocktail oggi</div>
+                    <div class="stat-value">${latest.topCocktail || 'N/D'} (${latest.topCocktailCount})</div>
+                </div>
+                <div class="stat-item card" style="grid-column:span 2;">
+                    <div class="stat-label">Record profitto</div>
+                    <div class="stat-value">€${bestDay.profit.toFixed(1)} (${bestDay.date})</div>
+                </div>
+            `;
+        }
+
         async function renderAll() {
             renderCocktails();
             renderOrders();
             renderInventory();
+            renderStats();
         }
 
         // INIT
