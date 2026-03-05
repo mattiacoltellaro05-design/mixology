@@ -1,7 +1,5 @@
 <!DOCTYPE html>
 <html lang="it">
-<head><!DOCTYPE html>
-<html lang="it">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -136,6 +134,7 @@
             background: var(--bg-secondary);
             border: 1px solid var(--border);
             transition: all 0.2s;
+            position: relative;
         }
         .cocktail-btn:active {
             background: color-mix(in srgb, var(--bg-secondary) 90%, var(--text-primary));
@@ -171,6 +170,7 @@
         .bottle-card {
             text-align: center;
             cursor: pointer;
+            position: relative;
         }
         .bottle-card.bottle-low {
             border-left: 4px solid #ff3b30;
@@ -352,7 +352,27 @@
             box-shadow: 0 4px 15px var(--shadow);
             z-index: 100;
         }
-        
+
+        /* icone azione piccole */
+        .small-icon-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .small-icon-btn-left {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
         @media (max-width: 768px) {
             .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
             .tabs { margin: 0 15px 25px; }
@@ -435,6 +455,7 @@
             </div>
             <div class="modal-buttons">
                 <button class="mint-btn" id="saveCocktailBtn">Salva</button>
+                <button class="mint-btn" id="deleteCocktailBtn" style="display:none">Elimina</button>
                 <button class="mint-btn" id="cancelCocktailBtn">Annulla</button>
             </div>
         </div>
@@ -449,6 +470,7 @@
                 this.cocktailsData = {}
                 this.dailyOrders = {};
                 this.editingIngredient = null;
+                this.editingCocktail = null;
                 this.currentCocktailIngredients = {};
                 this.ingredientSelectOpen = false;
                 
@@ -478,7 +500,7 @@
                 localStorage.setItem('theme', isDark ? 'light' : 'dark');
             }
 
-            async loadData() {
+            loadData() {
                 try {
                     const data = JSON.parse(localStorage.getItem('barData') || '{}');
                     this.inventoryData = data.inventory || this.inventoryData;
@@ -489,7 +511,7 @@
                 }
             }
 
-            async saveData() {
+            saveData() {
                 try {
                     localStorage.setItem('barData', JSON.stringify({
                         inventory: this.inventoryData,
@@ -511,12 +533,14 @@
                 document.getElementById('addCocktailBtn').onclick = () => this.openCocktailModal();
                 document.getElementById('endDayBtn').onclick = () => this.endDay();
 
-                // Modal buttons
+                // Ingredient modal buttons
                 document.getElementById('saveIngredientBtn').onclick = () => this.saveIngredient();
                 document.getElementById('deleteIngredientBtn').onclick = () => this.deleteIngredient();
                 document.getElementById('cancelIngredientBtn').onclick = () => this.closeIngredientModal();
 
+                // Cocktail modal buttons
                 document.getElementById('saveCocktailBtn').onclick = () => this.saveCocktail();
+                document.getElementById('deleteCocktailBtn').onclick = () => this.deleteCocktail();
                 document.getElementById('cancelCocktailBtn').onclick = () => this.closeCocktailModal();
                 document.getElementById('addIngredientToCocktailBtn').onclick = () => this.addIngredientToCocktail();
 
@@ -615,7 +639,7 @@
 
             async quickOrder(name) {
                 this.dailyOrders[name] = (this.dailyOrders[name] || 0) + 1;
-                await this.saveData();
+                this.saveData();
                 this.renderAll();
             }
 
@@ -625,7 +649,7 @@
                 } else {
                     delete this.dailyOrders[name];
                 }
-                await this.saveData();
+                this.saveData();
                 this.renderAll();
             }
 
@@ -648,68 +672,152 @@
                 modal.classList.add('show');
             }
 
-            async saveIngredient() {
+            saveIngredient() {
                 const name = document.getElementById('ingredientName').value.trim();
-                if (!name) return alert('Nome richiesto');
-                
+                if (!name) { alert('Nome richiesto'); return; }
+                const price = parseFloat(document.getElementById('ingredientPrice').value) || 0;
+
+                // rename gestione
+                if (this.editingIngredient && this.editingIngredient !== name) {
+                    // controlla conflitto
+                    if (this.inventoryData[name] && name !== this.editingIngredient) {
+                        alert('Esiste già un ingrediente con questo nome');
+                        return;
+                    }
+                    // rinomina nelle ricette
+                    for (const [cocktailName, cData] of Object.entries(this.cocktailsData)) {
+                        if (cData.ingredients && cData.ingredients[this.editingIngredient]) {
+                            cData.ingredients[name] = cData.ingredients[this.editingIngredient];
+                            delete cData.ingredients[this.editingIngredient];
+                        }
+                    }
+                    // rinomina in inventario
+                    delete this.inventoryData[this.editingIngredient];
+                }
+
                 this.inventoryData[name] = {
-                    pricePerLiter: parseFloat(document.getElementById('ingredientPrice').value) || 0
+                    pricePerLiter: price
                 };
-                await this.saveData();
+                this.saveData();
                 document.getElementById('ingredientModal').classList.remove('show');
+                this.editingIngredient = null;
                 this.renderAll();
             }
 
-            async deleteIngredient() {
-                if (!this.editingIngredient || !confirm('Elimina?')) return;
+            deleteIngredient() {
+                if (!this.editingIngredient) return;
+                // controlla uso nei cocktail
+                const usedIn = Object.entries(this.cocktailsData)
+                    .filter(([_, c]) => c.ingredients && c.ingredients[this.editingIngredient])
+                    .map(([name]) => name);
+                if (usedIn.length > 0) {
+                    alert('Ingrediente usato nei cocktail: ' + usedIn.join(', ') + '. Rimuovilo prima dalle ricette.');
+                    return;
+                }
+                if (!confirm('Eliminare ingrediente?')) return;
+
                 delete this.inventoryData[this.editingIngredient];
-                await this.saveData();
+                this.saveData();
                 document.getElementById('ingredientModal').classList.remove('show');
+                this.editingIngredient = null;
                 this.renderAll();
             }
 
             closeIngredientModal() {
                 document.getElementById('ingredientModal').classList.remove('show');
+                this.editingIngredient = null;
             }
 
-            openCocktailModal() {
-                document.getElementById('cocktailTitle').textContent = '🍹 Nuovo Cocktail';
-                document.getElementById('cocktailName').value = '';
-                document.getElementById('cocktailPrice').value = '12';
-                document.getElementById('selectedIngredient').textContent = 'Seleziona ingrediente...';
+            openCocktailModal(name = null) {
+                const modal = document.getElementById('cocktailModal');
+                const title = document.getElementById('cocktailTitle');
                 this.currentCocktailIngredients = {};
+                this.editingCocktail = name;
+
+                if (name && this.cocktailsData[name]) {
+                    // edit esistente
+                    const data = this.cocktailsData[name];
+                    title.textContent = '✏️ Modifica ' + name;
+                    document.getElementById('cocktailName').value = name;
+                    document.getElementById('cocktailPrice').value = data.price;
+                    this.currentCocktailIngredients = {...data.ingredients};
+                    document.getElementById('deleteCocktailBtn').style.display = 'inline-block';
+                } else {
+                    // nuovo
+                    title.textContent = '🍹 Nuovo Cocktail';
+                    document.getElementById('cocktailName').value = '';
+                    document.getElementById('cocktailPrice').value = '12';
+                    document.getElementById('deleteCocktailBtn').style.display = 'none';
+                }
+
+                document.getElementById('selectedIngredient').textContent = 'Seleziona ingrediente...';
                 this.renderCocktailIngredientsList();
-                document.getElementById('cocktailModal').classList.add('show');
+                modal.classList.add('show');
             }
 
-            async saveCocktail() {
+            saveCocktail() {
                 const name = document.getElementById('cocktailName').value.trim();
-                if (!name) return alert('Nome richiesto');
-                if (this.cocktailsData[name]) return alert('Cocktail già esistente');
+                if (!name) { alert('Nome richiesto'); return; }
                 
                 const price = parseFloat(document.getElementById('cocktailPrice').value);
-                if (!price || price <= 0) return alert('Prezzo richiesto');
+                if (!price || price <= 0) { alert('Prezzo richiesto'); return; }
                 
-                if (Object.keys(this.currentCocktailIngredients).length === 0) return alert('Aggiungi ingredienti');
-                
+                if (Object.keys(this.currentCocktailIngredients).length === 0) {
+                    alert('Aggiungi ingredienti');
+                    return;
+                }
+
+                // gestione rename cocktail
+                if (this.editingCocktail && this.editingCocktail !== name) {
+                    if (this.cocktailsData[name]) {
+                        alert('Esiste già un cocktail con questo nome');
+                        return;
+                    }
+                    // sposta ordini sul nuovo nome
+                    if (this.dailyOrders[this.editingCocktail]) {
+                        this.dailyOrders[name] = (this.dailyOrders[name] || 0) + this.dailyOrders[this.editingCocktail];
+                        delete this.dailyOrders[this.editingCocktail];
+                    }
+                    delete this.cocktailsData[this.editingCocktail];
+                } else if (!this.editingCocktail && this.cocktailsData[name]) {
+                    alert('Cocktail già esistente');
+                    return;
+                }
+
                 this.cocktailsData[name] = { price, ingredients: {...this.currentCocktailIngredients} };
-                await this.saveData();
+                this.saveData();
                 document.getElementById('cocktailModal').classList.remove('show');
+                this.editingCocktail = null;
+                this.renderAll();
+            }
+
+            deleteCocktail() {
+                if (!this.editingCocktail) return;
+                if (!confirm('Eliminare cocktail?')) return;
+
+                delete this.cocktailsData[this.editingCocktail];
+                // rimuovi anche eventuali ordini per quel cocktail
+                delete this.dailyOrders[this.editingCocktail];
+
+                this.saveData();
+                document.getElementById('cocktailModal').classList.remove('show');
+                this.editingCocktail = null;
                 this.renderAll();
             }
 
             closeCocktailModal() {
                 document.getElementById('cocktailModal').classList.remove('show');
+                this.editingCocktail = null;
             }
 
-            async endDay() {
+            endDay() {
                 if (confirm('Terminare giornata? Gli ordini verranno archiviati nelle statistiche.')) {
                     const dayStats = this.calculateDayStats();
                     const stats = JSON.parse(localStorage.getItem('barStats') || '[]');
                     stats.unshift(dayStats);
                     localStorage.setItem('barStats', JSON.stringify(stats.slice(0, 30)));
                     this.dailyOrders = {};
-                    await this.saveData();
+                    this.saveData();
                     this.renderAll();
                 }
             }
@@ -720,10 +828,13 @@
                 for (let [name, data] of Object.entries(this.cocktailsData).sort(([a],[b])=>a.localeCompare(b))) {
                     const count = this.dailyOrders[name] || 0;
                     html += `
-                        <div class="cocktail-btn ${count > 0 ? 'selected' : ''}" onclick="barManager.quickOrder('${name.replace(/'/g, "\\'")}')">
-                            <div class="cocktail-name">${name}</div>
-                            <div class="cocktail-count">${count}</div>
-                            <div class="cocktail-price">€${data.price.toFixed(1)}</div>
+                        <div class="cocktail-btn ${count > 0 ? 'selected' : ''}">
+                            <button class="small-icon-btn-left" onclick="event.stopPropagation();barManager.openCocktailModal('${name.replace(/'/g, "\\'")}')">✏️</button>
+                            <div onclick="barManager.quickOrder('${name.replace(/'/g, "\\'")}')">
+                                <div class="cocktail-name">${name}</div>
+                                <div class="cocktail-count">${count}</div>
+                                <div class="cocktail-price">€${data.price.toFixed(1)}</div>
+                            </div>
                         </div>`;
                 }
                 grid.innerHTML = html || '<div class="card" style="text-align:center;opacity:0.5;">Nessun cocktail. Aggiungine uno!</div>';
@@ -789,7 +900,7 @@
                             <div style="font-size:24px;font-weight:800;color:var(--mint-dark);">€${data.pricePerLiter}/L</div>
                         </div>`;
                 }
-                grid.innerHTML = html;
+                grid.innerHTML = html || '<div class="card" style="text-align:center;opacity:0.5;">Nessun ingrediente. Aggiungine uno!</div>';
             }
 
             renderStats() {
@@ -863,7 +974,7 @@
                 return stats;
             }
 
-            async renderAll() {
+            renderAll() {
                 this.renderCocktails();
                 this.renderOrders();
                 this.renderInventory();
